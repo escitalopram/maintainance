@@ -336,6 +336,6 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 
 | Version | Notes |
 |---------|--------|
-| 0.3 | Catch-up yes: last missed + count; neutral wording (no “habit” term) |
+| 0.3 | Catch-up yes: last missed + count; wording uses catch-up / daily example only |
 | 0.2 | TBD review locked; ephemeral horizon; snooze; on-read opens; due script contract |
 | 0.1 | Coarse draft |
