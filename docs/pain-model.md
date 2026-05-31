@@ -1,4 +1,4 @@
-# Pain model — mathematical specification (v0.3)
+# Pain model — mathematical specification (v0.4)
 
 Readable formulas only (no LaTeX). Implements [requirements.md](./requirements.md) §8.
 
@@ -27,6 +27,7 @@ Readable formulas only (no LaTeX). Implements [requirements.md](./requirements.m
 | F_i | Feasible days for instance i (horizon, weekdays, season, snooze) |
 | d0_i | **First feasible day:** earliest day in F_i |
 | idx(day) | 0-based index in D (0 = H_start) |
+| c | **catch_up_count** for the task (scheduling-model); 0 if not in backlog |
 
 **Overdue (planning):** instance is open, and the grace window around s_i has **fully ended** before planning starts (typically before H_start). Exact rule can align with “scheduled before horizon and outside grace at H_start”.
 
@@ -61,9 +62,78 @@ else:
 
 **d0_i** is the **first possible** planning day for that instance, not necessarily the first day of the horizon (snooze, allowed weekdays, etc. may push d0_i later).
 
+### 3.1 Final timing pain (with backlog multiplier)
+
+```
+base = timing from Regime A / B above (sections 4–5)
+
+if this instance is a catch-up backlog virtual (task has catch_up_count = c > 0):
+    timing_pain = M(c) * base
+else:
+    timing_pain = base
+```
+
+- **Forward** instances (ephemeral slots in the horizon, not backlog) use **M = 1** even on catch-up tasks.
+- **`P_daily`** is unchanged (duration still stacks when several backlog items land on one day).
+
 ---
 
-## 4. Regime A — grace window + bell curve
+## 4. Backlog multiplier M(c)
+
+When **`catch_up_count = c`** (see scheduling-model), the planner should feel more pressure to clear a larger backlog. **`M(c)`** scales **timing pain only** (not daily load).
+
+### 4.1 Requirements
+
+```
+M(1) = 1
+M(c) increases with c  (c >= 1)
+```
+
+Optional per task: **`use_backlog_multiplier`** (default true for `catch_up = true`).
+
+### 4.2 Recommended shapes (pick one in settings)
+
+**Linear** (simple, predictable):
+
+```
+M(c) = 1 + beta * (c - 1)
+```
+
+**Square root** (gentler for large c):
+
+```
+M(c) = 1 + beta * sqrt(c - 1)
+```
+
+**Log** (very gentle tail):
+
+```
+M(c) = 1 + beta * ln(c)        // c >= 1
+```
+
+- **`beta`** ≥ 0, global setting (e.g. `beta = 0.5` → three backlog items → `M = 2` linear).
+- Tune in UI; show effective **M** next to backlog count.
+
+### 4.3 Examples (linear, beta = 0.5)
+
+| c | M(c) |
+|---|------|
+| 1 | 1.0 |
+| 2 | 1.5 |
+| 3 | 2.0 |
+| 5 | 3.0 |
+
+If **base** timing pain is 4 and **c = 3**: **timing_pain = 2.0 × 4 = 8** per backlog virtual at that plan day.
+
+Three backlog virtuals on the **same** day → **3 × M(c) × base** timing pain **plus** **P_daily** from **3 × duration** — strong push to spread work without a pain cap.
+
+### 4.4 Interaction with Regime B
+
+On **p = d0**, **base = 0** → **timing_pain = 0** regardless of **c**. Backlog size affects pain only when you **delay** backlog work past **d0**.
+
+---
+
+## 5. Regime A — grace window + bell curve
 
 ### 4.1 Grace (flat zero)
 
@@ -136,15 +206,15 @@ timing pain (Regime A)
 
 ---
 
-## 5. Regime B — overdue and the bell
+## 6. Regime B — overdue and the bell
 
-### 5.1 Why Regime B exists
+### 6.1 Why Regime B exists
 
 If an instance is **very overdue**, **s** is far before **d0**. Regime A alone on **p = d0** would give a large **delta** outside grace → high **(1 − V)**. Requirement: **planning on the first feasible day must incur 0 timing pain**, even when **s** is long ago.
 
 Regime B does **not** replace the bell; it **only** forces **0** at **d0**. On any other day, the **same bell around s** applies.
 
-### 5.2 Relation to the bell (summary)
+### 6.2 Relation to the bell (summary)
 
 | Planned day | Overdue? | Timing pain |
 |-------------|----------|-------------|
@@ -152,7 +222,7 @@ Regime B does **not** replace the bell; it **only** forces **0** at **d0**. On a
 | **p ≠ d0** | yes | **Regime A** (grace + bell vs **s**) |
 | any **p** | no | **Regime A** only |
 
-### 5.3 A vs B on the same day (example)
+### 6.3 A vs B on the same day (example)
 
 Same **w**, grace, sigmas. **s_B = s_A + 3**. Both overdue, same **d0** (e.g. Monday).
 
@@ -163,7 +233,7 @@ Same **w**, grace, sigmas. **s_B = s_A + 3**. Both overdue, same **d0** (e.g. Mo
 
 Moving the **earlier-scheduled** task to a later plan day hurts more because the bell measures distance from **s**.
 
-### 5.4 Diagram (overdue + Regime B)
+### 6.4 Diagram (overdue + Regime B)
 
 ```
 timing pain
@@ -179,7 +249,7 @@ timing pain
 
 ---
 
-## 6. Daily load pain
+## 7. Daily load pain
 
 Unchanged from v0.2.
 
@@ -209,7 +279,7 @@ P_daily = sum over days d in D of rho(L(d))
 
 ---
 
-## 7. Hard constraints
+## 8. Hard constraints
 
 1. `p_i in F_i`
 2. `L(day) <= H_hard`
@@ -220,7 +290,7 @@ Not constrained by P* or P_total.
 
 ---
 
-## 8. Planner (v1)
+## 9. Planner (v1)
 
 Marginal cost when assigning instance i to day d:
 
@@ -236,19 +306,19 @@ Greedy initialization + local move/swap improvement.
 
 ---
 
-## 9. Parameters
+## 10. Parameters
 
-**Global:** T, P_T, k, H_hard, P*
+**Global:** T, P_T, k, H_hard, P*, **beta**, **backlog_M_mode** (`linear` | `sqrt` | `log`)
 
-**Per task:** w_i, d_i, g_early, g_late, sigma_early, sigma_late
+**Per task:** w_i, d_i, g_early, g_late, sigma_early, sigma_late, optional **use_backlog_multiplier**
 
 **Example defaults:** g_early=0, g_late=0, sigma_early=7, sigma_late=3, w=1
 
 ---
 
-## 10. Worked examples
+## 11. Worked examples
 
-### 10.1 Regime A only (not overdue)
+### 11.1 Regime A only (not overdue)
 
 Scheduled Monday; g_early=1, g_late=2; sigma_late=3; w=1.
 
@@ -259,7 +329,7 @@ Scheduled Monday; g_early=1, g_late=2; sigma_late=3; w=1.
 | Thu | +3 | no, delta_eff=1 | ~0.05 |
 | Sat | -2 | yes | 0 |
 
-### 10.2 Overdue + Regime B
+### 11.2 Overdue + Regime B
 
 s was 10 days before d0; grace ended; w=1; g_late=0; sigma_late=3.
 
@@ -271,12 +341,17 @@ s was 10 days before d0; grace ended; w=1; g_late=0; sigma_late=3.
 
 Task B with s_B three days later: same on d0 (**0**); on d0+1, delta_eff about **8** instead of **11** → **lower** pain than A.
 
+### 11.3 Backlog multiplier
+
+catch_up_count = 3, beta = 0.5, linear M → M = 2. On d0+1, base = 5 → timing_pain = 10 per backlog virtual (×3 virtuals if all placed that day).
+
 ---
 
-## 11. Changelog
+## 12. Changelog
 
 | Version | Notes |
 |---------|--------|
+| 0.4 | Backlog multiplier M(catch_up_count) on timing pain |
 | 0.3 | Single P_timing; overdue = 0 at d0 else Regime A; removed P_overdue and staleness×slip |
 | 0.2 | Grace window; separate P_overdue at d0 |
 | 0.1 | Initial draft |
