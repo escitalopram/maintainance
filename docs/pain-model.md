@@ -91,51 +91,45 @@ M(c) increases with c  (c >= 1)
 
 Optional per task: **`use_backlog_multiplier`** (default true for `catch_up = true`).
 
-### 4.2 Recommended shapes (pick one in settings)
-
-**Linear** (simple, predictable):
+### 4.2 Power law (locked)
 
 ```
-M(c) = 1 + beta * (c - 1)
+M(c) = 1 + beta * (c - 1)^backlog_p
 ```
 
-**Square root** (gentler for large c):
+| Parameter | Scope | Role |
+|-----------|--------|------|
+| **`beta`** | Global (settings) | Strength of backlog penalty (≥ 0) |
+| **`backlog_p`** | **Per task** (user-editable) | Exponent; **0.5 ≈ sqrt**, **1 = linear** |
+| **`default_backlog_p`** | Global (settings) | Initial value for new tasks (e.g. **0.6**) |
 
-```
-M(c) = 1 + beta * sqrt(c - 1)
-```
+- **`backlog_p`** in **(0, 1]** keeps growth sublinear (gentler than linear at large **c**).
+- Suggested range in UI: **0.5 – 0.75** (sqrt … between sqrt and linear).
+- Show effective **M(c)** in UI when `catch_up_count` is shown.
 
-**Log** (very gentle tail):
+### 4.3 Examples (beta = 0.5)
 
-```
-M(c) = 1 + beta * ln(c)        // c >= 1
-```
+| c | p = 0.5 (sqrt) | p = 0.6 | p = 2/3 |
+|---|----------------|---------|---------|
+| 1 | 1.0 | 1.0 | 1.0 |
+| 2 | 1.5 | 1.61 | 1.63 |
+| 3 | 1.71 | 1.83 | 1.84 |
+| 5 | 2.0 | 2.10 | 2.00 |
+| 10 | 2.5 | 2.48 | 2.26 |
 
-- **`beta`** ≥ 0, global setting (e.g. `beta = 0.5` → three backlog items → `M = 2` linear).
-- Tune in UI; show effective **M** next to backlog count.
-
-### 4.3 Examples (linear, beta = 0.5)
-
-| c | M(c) |
-|---|------|
-| 1 | 1.0 |
-| 2 | 1.5 |
-| 3 | 2.0 |
-| 5 | 3.0 |
-
-If **base** timing pain is 4 and **c = 3**: **timing_pain = 2.0 × 4 = 8** per backlog virtual at that plan day.
+If **base** = 4, **c = 3**, **beta = 0.5**, **backlog_p = 0.6**: **M ≈ 1.83** → **timing_pain ≈ 7.3** per backlog virtual.
 
 Three backlog virtuals on the **same** day → **3 × M(c) × base** timing pain **plus** **P_daily** from **3 × duration** — strong push to spread work without a pain cap.
 
 ### 4.4 Interaction with Regime B
 
-On **p = d0**, **base = 0** → **timing_pain = 0** regardless of **c**. Backlog size affects pain only when you **delay** backlog work past **d0**.
+On **planned day = d0**, **base = 0** → **timing_pain = 0** regardless of **c**. Backlog size affects pain only when you **delay** backlog work past **d0**.
 
 ---
 
 ## 5. Regime A — grace window + bell curve
 
-### 4.1 Grace (flat zero)
+### 5.1 Grace (flat zero)
 
 Per task:
 
@@ -150,7 +144,7 @@ if  -g_early <= delta <= g_late:
     (done)
 ```
 
-### 4.2 Outside grace — effective offset
+### 5.2 Outside grace — effective offset
 
 ```
 if delta < -g_early:
@@ -162,7 +156,7 @@ else if delta > g_late:
 
 (Inside grace, Regime A is already 0.)
 
-### 4.3 Bell curve → acceptability V
+### 5.3 Bell curve → acceptability V
 
 **Acceptability** V in (0, 1]: 1 = best, near 0 = bad.
 
@@ -180,7 +174,7 @@ This is a **Gaussian bell** in delta_eff:
 - **sigma_early** large → slow pain growth when too **early**
 - **sigma_late** small → fast pain growth when too **late** (e.g. fingernails)
 
-### 4.4 Pain from acceptability
+### 5.4 Pain from acceptability
 
 ```
 RegimeA = w * (1 - V)
@@ -192,7 +186,7 @@ RegimeA = w * (1 - V)
 | 0.5 | 0.5 * w | moderate |
 | ~0 | ~w | far outside band |
 
-### 4.5 Diagram (Regime A)
+### 5.5 Diagram (Regime A)
 
 ```
 timing pain (Regime A)
@@ -308,9 +302,9 @@ Greedy initialization + local move/swap improvement.
 
 ## 10. Parameters
 
-**Global:** T, P_T, k, H_hard, P*, **beta**, **backlog_M_mode** (`linear` | `sqrt` | `log`)
+**Global:** T, P_T, k, H_hard, P*, **beta**, **default_backlog_p**
 
-**Per task:** w_i, d_i, g_early, g_late, sigma_early, sigma_late, optional **use_backlog_multiplier**
+**Per task:** w_i, d_i, g_early, g_late, sigma_early, sigma_late, **backlog_p**, optional **use_backlog_multiplier**
 
 **Example defaults:** g_early=0, g_late=0, sigma_early=7, sigma_late=3, w=1
 
@@ -343,7 +337,7 @@ Task B with s_B three days later: same on d0 (**0**); on d0+1, delta_eff about *
 
 ### 11.3 Backlog multiplier
 
-catch_up_count = 3, beta = 0.5, linear M → M = 2. On d0+1, base = 5 → timing_pain = 10 per backlog virtual (×3 virtuals if all placed that day).
+catch_up_count = 3, beta = 0.5, backlog_p = 0.6 → M ≈ 1.83. On d0+1, base = 5 → timing_pain ≈ 9.2 per backlog virtual (×3 virtuals if all placed that day).
 
 ---
 
@@ -351,7 +345,7 @@ catch_up_count = 3, beta = 0.5, linear M → M = 2. On d0+1, base = 5 → timing
 
 | Version | Notes |
 |---------|--------|
-| 0.4 | Backlog multiplier M(catch_up_count) on timing pain |
+| 0.4 | Backlog multiplier M(c) = 1 + beta * (c-1)^backlog_p; backlog_p per task |
 | 0.3 | Single P_timing; overdue = 0 at d0 else Regime A; removed P_overdue and staleness×slip |
 | 0.2 | Grace window; separate P_overdue at d0 |
 | 0.1 | Initial draft |
