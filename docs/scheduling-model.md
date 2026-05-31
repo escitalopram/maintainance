@@ -70,16 +70,30 @@ catch_up = false  =>  count(open instances for task) <= 1
 
 ### 3.3 Catch-up yes — last missed + count
 
+**Catch-up is independent of interval type.** It applies to any recurrence (every N days, every N weeks, nth weekday of month, etc.). What varies is how **missed slots** are counted on the task’s schedule **grid**, not whether the task is “daily”.
+
 Backlog is stored compactly:
 
 | Field | Meaning |
 |-------|---------|
-| **`last_missed_scheduled_at`** | Scheduled date of the **most recent** missed obligation (the last day you should have done it). |
-| **`catch_up_count`** | How many completions still owed for the backlog (integer ≥ 0). |
+| **`last_missed_scheduled_at`** | Scheduled date of the **most recent** missed obligation on the grid. |
+| **`catch_up_count`** | How many completions still owed (integer ≥ 0). |
 
-**Older missed dates are not stored.** Only “how many” and “last” matter for scheduling/planning.
+**Older missed dates are not stored.** Only “how many” and “last” matter.
 
-**On read** (e.g. daily interval with catch-up yes): compare `next_scheduled` / grid to today; increase `catch_up_count` for each missed period; set **`last_missed_scheduled_at`** to the **latest** missed scheduled day.
+**On read** (`catch_up = true`):
+
+```
+catch_up_count = 0
+walk each scheduled slot S on this task's interval grid from epoch / last completion through today:
+    if S is due (S < today) and S is not satisfied by a completion or horizon assumption:
+        catch_up_count += 1
+        last_missed_scheduled_at = S   (keep the latest S)
+```
+
+- The **grid** comes from the task’s interval rules (not “calendar days” unless the interval is daily).
+- Example: **every 3rd Tuesday of the month** — three missed months → `catch_up_count = 3`, `last_missed` = date of the **third** (most recent) missed Tuesday.
+- Example: **every 1 day** (15 items) — same logic; one increment per missed daily slot.
 
 **Mark done:**
 
@@ -126,7 +140,7 @@ Stored as structured JSON (validated in Java), not a free-form DSL string.
 |------|---------|
 | `every_n_years` | + N years; same allowed-weekday / seasonal / min-gap pipeline as months |
 
-Defer **nth weekday of month** until after v1 core.
+**nth weekday of month** (e.g. 3rd Tuesday): supported in the interval model for grid walk / catch-up; may follow **days/weeks/months** in implementation order.
 
 ### 5.2 Epoch
 
@@ -162,6 +176,8 @@ When generating **new** forward slots (grid / `next_scheduled`):
 No new instances after `end_date`. Catch-up: remaining opens stay until done.
 
 ### 5.8 Catch-up flag
+
+Orthogonal to interval expression (days / weeks / months / nth weekday / …).
 
 | `catch_up` | Backlog | Mark done |
 |------------|---------|-----------|
@@ -282,11 +298,17 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 - `true` → one open, ASAP `scheduled_at`.
 - `false` → no new open.
 
-### Daily catch-up (example: 15 items)
+### 15 items (every day, catch-up yes)
 
-- On read: bump **`catch_up_count`**; set **`last_missed_scheduled_at`** to latest missed day.
-- Plan shows **count** virtual instances (same `s` = last missed) plus today’s forward slot when applicable.
-- Mark done: **`count -= 1`**; no per-day history for older misses.
+- Grid: every calendar day.
+- On read: `catch_up_count` = missed daily slots; `last_missed` = latest missed day.
+- Mark done: **`count -= 1`**.
+
+### 3rd Tuesday monthly (catch-up yes) — illustration
+
+- Grid: one slot per month on the 3rd Tuesday.
+- Miss Jan–Mar: `catch_up_count = 3`, `last_missed` = March’s Tuesday (not Jan/Feb dates stored).
+- Plan: three virtual instances, each with `scheduled_at = last_missed` for pain; user still completes three times.
 
 ### Fingernails (last completion, catch-up no)
 
@@ -336,6 +358,6 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 
 | Version | Notes |
 |---------|--------|
-| 0.3 | Catch-up yes: last missed + count; wording uses catch-up / daily example only |
+| 0.3 | Catch-up: last missed + count; catch-up independent of interval type |
 | 0.2 | TBD review locked; ephemeral horizon; snooze; on-read opens; due script contract |
 | 0.1 | Coarse draft |
