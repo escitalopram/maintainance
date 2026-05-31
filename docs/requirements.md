@@ -1,6 +1,6 @@
 # Personal maintenance planner — Requirements v0.3
 
-Status: **Draft for sign-off** (technical stack deferred).
+Status: **Draft for sign-off**. Tech stack: [tech-stack.md](./tech-stack.md).
 
 ## 1. Purpose
 
