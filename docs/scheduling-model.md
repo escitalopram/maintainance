@@ -79,7 +79,7 @@ Backlog is stored compactly:
 
 **Older missed dates are not stored.** Only “how many” and “last” matter for scheduling/planning.
 
-**On read** (e.g. daily habit): compare `next_scheduled` / grid to today; increase `catch_up_count` for each missed period; set **`last_missed_scheduled_at`** to the **latest** missed scheduled day.
+**On read** (e.g. daily interval with catch-up yes): compare `next_scheduled` / grid to today; increase `catch_up_count` for each missed period; set **`last_missed_scheduled_at`** to the **latest** missed scheduled day.
 
 **Mark done:**
 
@@ -92,7 +92,7 @@ if catch_up_count == 0:
 
 **Planning / horizon:** expand backlog into **`catch_up_count` virtual instances**, each with **`scheduled_at = last_missed_scheduled_at`** (same `s` for pain/planner). Do not invent dates for earlier misses.
 
-**UI:** may show e.g. “3× habit (last due Wed)” instead of three separate historical dates.
+**UI:** may show e.g. “3× (last due Wed)” instead of three separate historical dates.
 
 ---
 
@@ -282,7 +282,7 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 - `true` → one open, ASAP `scheduled_at`.
 - `false` → no new open.
 
-### Habit (daily, catch-up yes)
+### Daily catch-up (example: 15 items)
 
 - On read: bump **`catch_up_count`**; set **`last_missed_scheduled_at`** to latest missed day.
 - Plan shows **count** virtual instances (same `s` = last missed) plus today’s forward slot when applicable.
@@ -316,7 +316,7 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 | 8 | due() | stdout; warn on error; missing line → false |
 | 9 | Script | Path + args per task |
 | 10 | Horizon | Ephemeral projection only |
-| 11 | Habit backlog | `last_missed_scheduled_at` + `catch_up_count` (no older dates) |
+| 11 | Catch-up backlog | `last_missed_scheduled_at` + `catch_up_count` (no older dates) |
 | 12 | Catch-up no | ≤ 1 open; safety cancel on mark done |
 | 13 | Epoch on create | Default next slot from today (editable) |
 
@@ -336,6 +336,6 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 
 | Version | Notes |
 |---------|--------|
-| 0.3 | Catch-up yes: last missed + count instead of per-day open rows |
+| 0.3 | Catch-up yes: last missed + count; neutral wording (no “habit” term) |
 | 0.2 | TBD review locked; ephemeral horizon; snooze; on-read opens; due script contract |
 | 0.1 | Coarse draft |
