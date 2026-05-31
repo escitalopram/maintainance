@@ -1,13 +1,13 @@
-# Pain model — mathematical specification (draft)
+# Pain model — mathematical specification (v0.2)
 
-This document defines how **pain** is computed and how the **planner** uses it. It implements [requirements.md](./requirements.md) §8.
+Readable formulas only (no LaTeX). Implements [requirements.md](./requirements.md) §8.
 
 **Principles**
 
 - Pain is a **scalar cost** to **minimize** (subject to hard constraints).
-- There is **no pain cap**: any plan that satisfies hard constraints is valid.
-- **Global pain threshold** `P*` is a **UI / target reference only**, not a feasibility bound.
-- Planning is **day-granular** in v1 (`planned_at` date; time-of-day is display-only).
+- **No pain cap:** feasible plans are always valid regardless of total pain.
+- **P\*** (global pain threshold) is for UI / targets only.
+- Planning uses **calendar days** in v1.
 
 ---
 
@@ -15,291 +15,274 @@ This document defines how **pain** is computed and how the **planner** uses it. 
 
 | Symbol | Meaning |
 |--------|---------|
-| `D` | Set of calendar days in the planning horizon `[H_start, H_end]` |
-| `I` | Set of instances to plan (from scheduling), indexed by `i` |
-| `s_i` | **Scheduled date** of instance `i` (ideal day from rules) |
-| `p_i` | **Planned date** (decision variable), `p_i ∈ D` |
-| `δ_i` | Day offset: `δ_i = p_i - s_i` (integer days; **+ late**, **− early**) |
-| `d_i` | Duration (minutes) of instance `i` |
-| `w_i` | Importance weight, `w_i ≥ 1` (default `1`) |
-| `L(d)` | Total planned minutes on day `d`: `L(d) = Σ_{i: p_i = d} d_i` |
-| `T` | Soft daily minute threshold (settings) |
-| `P_T` | Pain at `L = T` (settings: `pain_at_threshold`) |
-| `k` | Pain per minute above `T` (settings: `pain_per_minute_over_threshold`) |
-| `H_hard` | Hard daily minute cap (settings) |
-| `P*` | Global pain threshold (reference only) |
+| D | Days in planning horizon [H_start, H_end] |
+| I | Instances to plan |
+| s_i | Scheduled date (ideal day) |
+| p_i | Planned date (chosen by planner) |
+| delta_i | Day offset: **p_i minus s_i** (positive = late, negative = early) |
+| d_i | Duration in minutes |
+| w_i | Importance weight (default 1, at least 1) |
+| L(day) | Sum of d_i for all instances planned on that day |
+| F_i | Feasible days for instance i (weekdays, season, snooze, horizon) |
+| d0_i | **First feasible day** for i (see section 4) |
+| idx(day) | 0-based index of day in D (0 = H_start) |
 
-**Overdue:** instance `i` is overdue (w.r.t. plan start) if `s_i < H_start` and not completed.
-
-**Snooze / allowed weekdays / seasonal window:** feasible set `F_i ⊆ D` per instance; require `p_i ∈ F_i`.
+**Overdue:** s_i is before H_start and instance is not completed.
 
 ---
 
 ## 2. Total pain
 
 ```
-P_total(x) = P_timing(x) + P_overdue(x) + P_daily(x)
+P_total = P_timing + P_overdue + P_daily
 ```
 
-where `x` is the assignment vector `(p_i)_{i∈I}`.
-
-The planner **minimizes** `P_total` over feasible assignments. It **always** returns a feasible plan if one exists; it does **not** reject plans with `P_total > P*`.
+Minimize P_total subject to hard constraints. Do **not** reject plans when P_total > P*.
 
 ---
 
-## 3. Instance timing pain (flexibility)
+## 3. Timing pain (flexibility + grace window)
 
-### 3.1 Acceptability
+### 3.1 Grace window (zero extra pain)
 
-Define **acceptability** `V_i(δ) ∈ (0, 1]`, with `V_i(0) = 1` (best). Lower acceptability ⇒ higher pain.
+Per task, configure:
 
-**Asymmetric Gaussian (recommended default):**
+- **g_early** — days **before** s_i with no timing pain
+- **g_late** — days **after** s_i with no timing pain
 
-```
-V_i(δ) = exp( - δ² / (2 σ_i(δ)²) )
-
-σ_i(δ) = σ_i_early   if δ < 0
-         σ_i_late    if δ ≥ 0
-```
-
-Parameters per task (or instance): `σ_i_early`, `σ_i_late` (days, > 0).
-
-- Large `σ_i_early` → doing **early** is cheap (fingernails).
-- Small `σ_i_late` → doing **late** is expensive.
-
-**Pain from offset:**
+If **delta_i** is between **-g_early** and **+g_late** (inclusive):
 
 ```
-π_timing(i, δ) = w_i · φ(V_i(δ))
-
-φ(V) = 1 - V          (bounded, easy UI: 0 at ideal, → 1 far away)
+timing_pain(i) = 0
 ```
 
-Alternative (steeper tails): `φ(V) = -ln(V)` (unbounded above; use if you want stronger penalties).
+Example: g_early=2, g_late=1 → plan from 2 days early through 1 day late with no timing pain.
 
-**Properties**
+### 3.2 Pain outside the grace window
 
-- `π_timing(i, 0) = 0`
-- Symmetric iff `σ_early = σ_late`
-- Strictly increasing in `|δ|` in the “bad” direction when σ’s are finite
+Only the part **outside** the grace band counts.
 
-### 3.2 Infeasible days
+**Effective offset** (delta_eff):
 
-If rules forbid placing `i` on day `p` (weekday, season, snooze), `p ∉ F_i` is a **hard** constraint, not infinite pain.
+```
+if delta_i < -g_early:
+    delta_eff = delta_i + g_early          # how many days too early
 
-Optional **soft** forbidden band (future): add penalty for `p` outside allowed weekdays instead of hard forbid — **not in v1**.
+else if delta_i > g_late:
+    delta_eff = delta_i - g_late           # how many days too late
+
+else:
+    delta_eff = 0                          # inside grace → no pain
+```
+
+**Acceptability** (asymmetric bell curve on delta_eff):
+
+```
+sigma = sigma_early    if delta_eff < 0
+        sigma_late     if delta_eff >= 0
+
+V = exp( -(delta_eff * delta_eff) / (2 * sigma * sigma) )
+```
+
+**Timing pain:**
+
+```
+timing_pain(i) = w_i * (1 - V)
+```
+
+- At scheduled day (delta=0): inside grace → **0 pain**
+- Far from band: V near 0 → pain near w_i
+- Large sigma_early → slow pain growth when too early
+- Small sigma_late → fast pain growth when too late (fingernails)
+
+Parameters per task: **g_early**, **g_late**, **sigma_early**, **sigma_late**, **w_i**.
+
+### 3.3 Diagram (timing)
+
+```
+timing pain
+    ^
+    |     \ late side (often steeper)
+    |      \
+----+-------+-------+-----> planned day offset (delta)
+   -g_early  0    +g_late
+    |      /
+    |     / early side
+    0 pain inside [ -g_early , +g_late ]
+```
 
 ---
 
-## 4. Overdue urgency
+## 4. Overdue pain (first feasible day = free)
 
-Requirement: overdue instances should be planned **as early as possible** in the horizon.
+### 4.1 First feasible day d0_i
 
-Add a term that penalizes **delay after horizon start** only for overdue instances:
-
-```
-O_i = { i ∈ I : s_i < H_start }
-
-π_overdue(i, p_i) = w_i · η · max(0, idx(p_i) - idx(H_start))
-```
-
-- `idx(·)` = integer index of calendar day in `D` (0 = `H_start`).
-- `η > 0` global (settings), e.g. `η = 1` pain unit per day of delay.
-
-This is **linear** in delay; for stronger “ASAP”, use quadratic:
+For each overdue instance i:
 
 ```
-π_overdue(i, p_i) = w_i · η · max(0, idx(p_i) - idx(H_start))²
+d0_i = earliest day in F_i   (chronological first allowed day in horizon)
 ```
 
-**Interaction with timing pain:** overdue instance scheduled on `H_start` may still have `δ_i < 0` (if `s_i` was long ago), so `π_timing` can be large. That is intentional: old overdue + far from ideal slot both hurt.
+Often d0_i = H_start, but if snooze or “Sat/Sun only” blocks earlier days, d0_i is later.
+
+### 4.2 Overdue penalty
+
+Only for overdue instances. Let:
+
+```
+delay_i = max(0,  idx(p_i) - idx(d0_i))
+```
+
+**If delay_i = 0** (planned on first feasible day):
+
+```
+overdue_pain(i) = 0
+```
+
+**If delay_i > 0** (pushed later than necessary):
+
+```
+overdue_pain(i) = w_i * eta * (delay_i * delay_i)     # quadratic (recommended)
+```
+
+or, for constant marginal pain per day:
+
+```
+overdue_pain(i) = w_i * eta * delay_i                 # linear
+```
+
+**Quadratic** matches “each extra day hurts **more** than the previous” (marginal pain grows).
+
+**eta** is a global setting (pain scale).
+
+### 4.3 Does this match the intent?
+
+| Your rule | Model |
+|-----------|--------|
+| First possible day → no extra overdue pain | delay=0 → overdue_pain=0 |
+| Each day later → increasingly worse | delay² (or higher power) |
+| Not tied blindly to H_start | Anchor is **d0_i**, not H_start |
+
+**Note:** Timing pain (section 3) is separate. An overdue item on d0_i can still have timing_pain > 0 if d0_i is far from s_i and outside the grace window. That is intentional (very old due date vs ideal slot).
 
 ---
 
 ## 5. Daily load pain
 
-### 5.1 Piecewise-linear soft budget
+### 5.1 Soft budget (piecewise linear)
 
-For each day `d ∈ D`, with load `L = L(d)`:
-
-```
-ρ(L) = 0                                    if L ≤ 0
-       (P_T / T) · L                        if 0 < L ≤ T
-       P_T + k · (L - T)                    if L > T
-```
-
-- `T` = soft threshold minutes (settings).
-- `P_T` = pain at knee (settings).
-- `k` = marginal pain per minute above `T` (settings).
+For each day, L = L(day) in minutes:
 
 ```
-P_daily(x) = Σ_{d ∈ D} ρ(L(d))
+if L <= 0:
+    rho(L) = 0
+
+else if L <= T:
+    rho(L) = (P_T / T) * L
+
+else:
+    rho(L) = P_T + k * (L - T)
 ```
 
-**Note:** `ρ` is **concave-linear-convex**: slow growth until `T`, then faster. No cap.
+- **T** — soft threshold minutes
+- **P_T** — pain at T (pain_at_threshold)
+- **k** — extra pain per minute above T
+
+```
+P_daily = sum over all days d in D of rho(L(d))
+```
 
 ### 5.2 Hard cap
 
-**Constraint (not pain):**
-
 ```
-L(d) ≤ H_hard   for all d ∈ D
+L(day) <= H_hard    for every day   (constraint, not pain)
 ```
 
-If the problem is infeasible (sum of durations too large for horizon × `H_hard`), planner reports **infeasible** — not “too much pain”.
-
-### 5.3 Relation of `T` to “soft max minutes”
-
-Requirements mention soft budget for planning. Two equivalent views:
-
-1. **Single knob:** `T` is the soft budget; `ρ` encodes discomfort above it.
-2. **Optional:** also store `M_soft` and default `T = M_soft` in UI.
-
-Use one pair `(T, P_T, k)` in v1 to avoid redundancy.
-
----
-
-## 6. Hard constraints (feasibility)
-
-A plan is **feasible** iff:
-
-1. **Assignment:** `p_i ∈ F_i` for all `i`
-2. **Daily cap:** `L(d) ≤ H_hard` for all `d`
-3. **Same-day order:** for instances with `p_i = p_j = d`, sort order matches hard precedence graph (topological order exists)
-4. **At most one planned day per open instance** (each instance assigned exactly once)
-
-**Not** constrained by `P*` or `P_total`.
-
----
-
-## 7. Optimization problem
+### 5.3 Diagram (daily)
 
 ```
-minimize    P_total(p)
-subject to  p_i ∈ F_i,
-            L(d) ≤ H_hard,
-            ordering constraints on each day
+daily pain rho(L)
+    ^
+    |                    /
+    |                   /  slope k
+    |                  /
+    |                 /
+    |               / slope P_T/T
+    |             /
+    +------------+------------> L (minutes)
+    0            T
 ```
 
-**NP-hard** in general (bin-packing + assignment). For v1 use a **constructive heuristic + local improvement** (Section 8), not an external solver.
+---
+
+## 6. Hard constraints
+
+1. p_i in F_i
+2. L(day) <= H_hard
+3. Same-day ordering (hard)
+4. Each instance assigned exactly once
 
 ---
 
-## 8. Suggested planner algorithm (v1)
+## 7. Planner (v1)
 
-### Phase A — Feasible initialization
-
-1. Sort instances by priority key (descending):
-   - overdue first (`s_i < H_start`)
-   - then `w_i · η` (importance)
-   - then earlier `s_i`
-2. For each instance `i`, assign `p_i` to the **first** day `d ∈ F_i` (in chronological order) such that:
-   - `L(d) + d_i ≤ H_hard`
-   - ordering slots on `d` still available
-   - **Marginal pain** `ΔP` is finite
-
-Use **marginal cost** when multiple days qualify:
+Greedy + local search; marginal cost when choosing a day:
 
 ```
-ΔP(i → d) = π_timing(i, d - s_i) + π_overdue(i, d) + ρ(L(d) + d_i) - ρ(L(d))
+delta_P = change in timing_pain + change in overdue_pain + change in rho(L)
 ```
 
-Pick `d` with minimum `ΔP` (break ties toward earlier `d` for overdue).
-
-### Phase B — Local search
-
-Repeat until no improvement or iteration limit:
-
-- **Move:** reassign one `i` to another feasible day with lower `P_total`
-- **Swap:** exchange two instances’ days if feasible and `P_total` decreases
-
-### Phase C — Reporting
-
-Return:
-
-- `P_total`, breakdown `(P_timing, P_overdue, P_daily)`
-- Compare to `P*`: e.g. ratio `P_total / P*` or delta (UI only)
-- Per-day `L(d)`, `ρ(L(d))` for transparency
+Overdue instances: break ties toward **smaller idx(p)** (earlier day).
 
 ---
 
-## 9. Parameter catalog
+## 8. Parameters
 
-### 9.1 Global (settings)
+**Global:** T, P_T, k, H_hard, P*, eta, overdue_power (1=linear, 2=quadratic)
 
-| Parameter | Role | Example |
-|-----------|------|---------|
-| `T` | Soft minute knee | 120 |
-| `P_T` | Pain at knee | 10 |
-| `k` | Pain / minute above `T` | 2 |
-| `H_hard` | Hard daily cap (min) | 480 |
-| `P*` | Reference threshold (UI) | 100 |
-| `η` | Overdue delay penalty | 1 |
-| `φ` | Transform (`1-V` or `-ln V`) | `1-V` |
+**Per task:** w_i, d_i, g_early, g_late, sigma_early, sigma_late
 
-### 9.2 Per task
-
-| Parameter | Role |
-|-----------|------|
-| `w_i` | Importance multiplier |
-| `d_i` | Duration (minutes) |
-| `σ_i_early`, `σ_i_late` | Flexibility (days) |
-
-**Defaults (starting point):** `σ_early = 7`, `σ_late = 3`, `w = 1`.
-
-### 9.3 Preset shapes (UI helpers, not rule types)
-
-| Profile | σ_early | σ_late |
-|---------|---------|--------|
-| Strict | 2 | 2 |
-| Tolerant late | 5 | 2 |
-| Fingernails-like | 10 | 2 |
-| Flexible both | 7 | 7 |
+**Example defaults:** g_early=0, g_late=0, sigma_early=7, sigma_late=3
 
 ---
 
-## 10. Worked micro-example
+## 9. Worked examples (plain numbers)
 
-**Settings:** `T=60`, `P_T=6`, `k=1`, `H_hard=120`, `η=2`, `P*=50`.
+**Grace:** g_early=1, g_late=2, scheduled Monday.
 
-**One instance:** `s = Monday`, `w=2`, `d=30` min, `σ_early=7`, `σ_late=3`.
+| Planned | delta | delta_eff | timing pain |
+|---------|-------|-----------|-------------|
+| Mon | 0 | 0 | 0 |
+| Tue | +1 | 0 | 0 |
+| Wed | +2 | 0 | 0 |
+| Thu | +3 | +1 | w*(1-V) small |
+| Sun | -1 | 0 | 0 |
+| Sat | -2 | -1 | w*(1-V) small |
 
-| Planned day | δ | `V ≈` | `φ=1-V` | `π_timing = 2φ` |
-|-------------|---|-------|---------|-----------------|
-| Mon | 0 | 1 | 0 | 0 |
-| Wed | +2 | 0.51 | 0.49 | 0.98 |
-| Fri (early) | −2 | 0.92 | 0.08 | 0.16 |
+**Overdue:** H_start Monday, d0_i Monday (feasible), eta=1, w=1, quadratic.
 
-**Daily:** if only this task on a day, `L=30`, `ρ(30) = (6/60)*30 = 3`.
-
----
-
-## 11. Open choices (decide before coding)
-
-| # | Question | Recommendation |
-|---|----------|----------------|
-| 1 | `φ(V) = 1-V` vs `-ln V` | **`1-V`** for v1 (bounded, intuitive) |
-| 2 | Overdue penalty linear vs quadratic | **Linear** first; quadratic if ASAP too weak |
-| 3 | Day offset: calendar days vs business days | **Calendar days** in v1 |
-| 4 | Multiple instances same task same day | Allowed if rules allow; durations **sum** in `L(d)` |
-| 5 | External due (ASAP) | `s_i = H_start`, small `σ_late`, large `w_i`, high `η` |
+| Planned | delay | overdue pain |
+|---------|-------|--------------|
+| Mon | 0 | 0 |
+| Tue | 1 | 1 |
+| Wed | 2 | 4 |
+| Thu | 3 | 9 |
 
 ---
 
-## 12. Acceptance checks (from requirements)
+## 10. Open choices
 
-| Scenario | Expected planner behavior |
-|----------|---------------------------|
-| Fingernails | Low `π_timing` for `δ < 0`; high for `δ > 0` |
-| Overdue habit backlog | Low `idx(p_i)` (early in horizon) via `π_overdue` |
-| Many tasks one day | `ρ(L)` rises; planner spreads if cheaper days exist |
-| Above `T` minutes | `ρ` still finite; plan valid unless `L > H_hard` |
-| `P_total >> P*` | Plan still returned; UI warns |
+| # | Topic | Suggestion |
+|---|--------|------------|
+| 1 | Overdue power | **2** (quadratic) |
+| 2 | Timing phi | **1 - V** (bounded) |
+| 3 | Separate g_early / g_late | **Yes** (asymmetric grace) |
 
 ---
 
-## 13. Version
+## 11. Changelog
 
-| Version | Date | Notes |
-|---------|------|-------|
-| 0.1 | draft | Initial formal model |
+| Version | Notes |
+|---------|--------|
+| 0.2 | No LaTeX; grace window; overdue anchored at d0_i with 0 pain there |
+| 0.1 | Initial draft |
