@@ -1,4 +1,4 @@
-# Scheduling model — specification (v0.2)
+# Scheduling model — specification (v0.3)
 
 Readable formulas only. Defines **when instances exist** and their **scheduled** times. Day assignment for workload is [pain-model.md](./pain-model.md) (**planning**).
 
@@ -30,8 +30,9 @@ Scheduling runs **before** planning. Planning reads scheduled instances (open ba
 
 - Do **not** store all future instances in the database.
 - **Database holds:**
-  - **Open instances** (0…many per task, per catch-up rules).
-  - **`next_scheduled`** (optional date pointer for the next not-yet-due slot on non-catch-up tasks).
+  - **`next_scheduled`** — next forward slot (when not in backlog).
+  - **Catch-up backlog** (catch-up **yes** only): **`last_missed_scheduled_at`** + **`catch_up_count`** (see section 3.3). Individual older missed dates are **not** stored.
+  - **Open instance** row(s) for catch-up **no**, external due, or a single holder for snooze — **≤ 1** per task when `catch_up = false`.
 - **Horizon** `[H_start, H_end]`: additional instances are **projected in memory** only (section 7).
 
 ### 2.2 Dates and timezone
@@ -53,7 +54,7 @@ if task has next_scheduled (or current cycle due) and now > end of that schedule
        ensure an open instance exists for that obligation
 ```
 
-- **Catch-up yes:** each missed day → **separate open row** with `scheduled_at` = that day (habit).
+- **Catch-up yes:** update **`last_missed_scheduled_at`** and **`catch_up_count`** (section 3.3).
 - **Catch-up no:** **at most one open** per task (section 3.2).
 
 No nightly batch required in v1.
@@ -67,10 +68,31 @@ catch_up = false  =>  count(open instances for task) <= 1
 - On read: if overdue, **reuse** the existing open row or create **one**; do **not** add a new open per missed cycle.
 - **Mark done:** complete that instance; recompute `next_scheduled`; **cancel any other open** rows for that task (safety — should be none).
 
-### 3.3 Catch-up yes
+### 3.3 Catch-up yes — last missed + count
 
-- Each missed scheduled day keeps (or gets) its own open instance.
-- **Mark done:** remove **only** the completed instance; other opens remain.
+Backlog is stored compactly:
+
+| Field | Meaning |
+|-------|---------|
+| **`last_missed_scheduled_at`** | Scheduled date of the **most recent** missed obligation (the last day you should have done it). |
+| **`catch_up_count`** | How many completions still owed for the backlog (integer ≥ 0). |
+
+**Older missed dates are not stored.** Only “how many” and “last” matter for scheduling/planning.
+
+**On read** (e.g. daily habit): compare `next_scheduled` / grid to today; increase `catch_up_count` for each missed period; set **`last_missed_scheduled_at`** to the **latest** missed scheduled day.
+
+**Mark done:**
+
+```
+catch_up_count -= 1
+completion.scheduled_at = last_missed_scheduled_at   // same reference for each backlog completion
+if catch_up_count == 0:
+    clear backlog fields; recompute next_scheduled
+```
+
+**Planning / horizon:** expand backlog into **`catch_up_count` virtual instances**, each with **`scheduled_at = last_missed_scheduled_at`** (same `s` for pain/planner). Do not invent dates for earlier misses.
+
+**UI:** may show e.g. “3× habit (last due Wed)” instead of three separate historical dates.
 
 ---
 
@@ -133,7 +155,7 @@ When generating **new** forward slots (grid / `next_scheduled`):
 
 - If gap from previous **scheduled** date < minimum → **push candidate forward** until gap OK.
 
-**Catch-up exception:** existing **open** instances **keep** their original `scheduled_at` even if two opens are closer than the minimum (e.g. two habit days in a row).
+**Catch-up exception:** **min gap** applies to forward **`next_scheduled`** generation, not to splitting the backlog (count + last missed are exempt from per-day gap rules).
 
 ### 5.7 End date / archive
 
@@ -141,10 +163,10 @@ No new instances after `end_date`. Catch-up: remaining opens stay until done.
 
 ### 5.8 Catch-up flag
 
-| `catch_up` | Opens | Mark done |
-|------------|-------|-----------|
-| **true** | Many (one per missed day) | Removes one open |
-| **false** | ≤ 1 | Clears obligation; cancel other opens (safety) |
+| `catch_up` | Backlog | Mark done |
+|------------|---------|-----------|
+| **true** | `last_missed_scheduled_at` + `catch_up_count` | `count -= 1` |
+| **false** | ≤ 1 open | Clears obligation; cancel other opens (safety) |
 
 ### 5.9 External due function
 
@@ -202,8 +224,12 @@ result = []
 for each task:
     reconcileOpensOnRead(task)                    // section 3
 
-    for each open instance with scheduled_at < H_end:
-        result += instance                        // persisted
+    if catch_up and catch_up_count > 0:
+        repeat catch_up_count times:
+            result += VirtualInstance(last_missed_scheduled_at)   // backlog, NOT persisted
+
+    else if open instance (catch_up no / external):
+        result += persisted open
 
     apply horizon assumptions for (now, H_start)  // section 8
 
@@ -217,7 +243,7 @@ return result
 
 - **Virtual instances** exist only for the response (planning input).
 - **Never INSERT** horizon walk results into the database.
-- **Catch-up yes:** result includes all **open** rows (past days) plus **virtual** future slots in range.
+- **Catch-up yes:** **`catch_up_count`** virtuals at **`last_missed_scheduled_at`**, plus forward **virtual** slots from `next_scheduled`.
 - **Catch-up no:** at most one **open**; virtuals for forward preview only.
 
 ---
@@ -258,9 +284,9 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 
 ### Habit (daily, catch-up yes)
 
-- Each day’s ideal `scheduled_at` = that date.
-- On read after midnight: new open for each missed day (**multiple rows**).
-- Mark done: delete one open; others remain.
+- On read: bump **`catch_up_count`**; set **`last_missed_scheduled_at`** to latest missed day.
+- Plan shows **count** virtual instances (same `s` = last missed) plus today’s forward slot when applicable.
+- Mark done: **`count -= 1`**; no per-day history for older misses.
 
 ### Fingernails (last completion, catch-up no)
 
@@ -290,7 +316,7 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 | 8 | due() | stdout; warn on error; missing line → false |
 | 9 | Script | Path + args per task |
 | 10 | Horizon | Ephemeral projection only |
-| 11 | Habit backlog | One open per missed day |
+| 11 | Habit backlog | `last_missed_scheduled_at` + `catch_up_count` (no older dates) |
 | 12 | Catch-up no | ≤ 1 open; safety cancel on mark done |
 | 13 | Epoch on create | Default next slot from today (editable) |
 
@@ -310,5 +336,6 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 
 | Version | Notes |
 |---------|--------|
+| 0.3 | Catch-up yes: last missed + count instead of per-day open rows |
 | 0.2 | TBD review locked; ephemeral horizon; snooze; on-read opens; due script contract |
 | 0.1 | Coarse draft |
