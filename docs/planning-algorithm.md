@@ -1,4 +1,4 @@
-# Planning algorithm — specification (v0.3.3)
+# Planning algorithm — specification (v0.3.4)
 
 Procedural spec for **planning** (assigning **planned** dates). Pain formulas: [pain-model.md](./pain-model.md). Instance generation: [scheduling-model.md](./scheduling-model.md).
 
@@ -237,6 +237,8 @@ P_total = P_timing + P_daily
 - **Timing:** Regime A/B + backlog **`M(c)`** — [pain-model.md](./pain-model.md).
 - **Daily:** **`rho(L(d))`** for each day **d** in the horizon (final loads, including overflow).
 
+Each **assigned** row in **PlanResult** includes **`timingPain`** = **`timing_pain(i, p = planned_at)`** after truncation (§2.1) — same value used in **`P_timing`**.
+
 Minimize **`P_total`** over assignments (subject to §7).
 
 ### 8.2 Unplanned instances (on the plan, not placed)
@@ -252,6 +254,8 @@ timing_pain_unassigned(i) = timing_pain(i, p = p_beyond)
 - Use **Regime A** only (**`p_beyond`** is never **`d0`** and not in the horizon).
 - Apply backlog **`M(c)`** the same as for assigned instances.
 - **No **`P_daily`** contribution** (no minutes on any horizon day).
+
+Each **unplanned** row includes **`timingPain`** = **`timing_pain_unassigned(i)`** (this value).
 
 **Plan totals:**
 
@@ -362,6 +366,34 @@ After optimization, compute **`within_day_order`** per day (section 5).
 }
 ```
 
+### 10.1 Plan item fields
+
+Every object in **`items`** (assigned and unplanned) **must** include **`timingPain`** (number, ≥ 0):
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| **`instanceKey`** | yes | Stable id for this schedulable row (open id or virtual key). |
+| **`taskId`** | yes | Owning task. |
+| **`scheduledAt`** | yes | Ideal date **`s`** from scheduling. |
+| **`plannedAt`** | yes | User-visible planned day, or **`null`** if unplanned (§2.1, §8.2). |
+| **`timingPain`** | yes | Per-instance timing pain (see below). |
+| **`durationMinutes`** | yes | Task duration **`d_i`**. |
+| **`withinDayOrder`** | if assigned | Same-day sort index (§5). |
+| **`placement`** | if unplanned | e.g. **`"unassigned"`**. |
+| **`virtual`**, **`backlog`**, **`overdue`** | optional | Scheduling metadata when applicable. |
+
+**`timingPain` computation:**
+
+```
+if plannedAt != null:
+    timingPain = timing_pain(i, p = plannedAt)     // Regime A/B + M(c); pain-model §3
+else:
+    timingPain = timing_pain(i, p = p_beyond)      // §8.2; Regime A + M(c)
+```
+
+- Use **final** user-visible assignments after **`truncatePlan`** (§2.1).
+- **`sum(timingPain)`** over assigned items equals **`pTiming`**; over unplanned items equals **`pTimingUnassigned`**.
+
 - **`pTotal`** = assigned timing + daily + unassigned reference timing (§8.2).  
 - **`warnings`:** e.g. `ordering_cycle`, `plan_underflow_strict_cap`, `unassigned_instances`, …
 
@@ -397,6 +429,7 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 | Extended horizon (2×) | Internal assign on day **`U_end + 1`** → user view **unplanned**; no last-day cram |
 | Unassigned on plan | **`plannedAt: null`**, included in **`pTimingUnassigned`** |
 | Mark done | Only completion stores **`planned_at`** |
+| Per-item timing pain | Every **`items[]`** row has **`timingPain`**; assigned uses **`plannedAt`**, unplanned uses **`p_beyond`** |
 
 ---
 
@@ -414,6 +447,7 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 
 | Version | Notes |
 |---------|--------|
+| 0.3.4 | **`timingPain`** required on every plan item |
 | 0.3.3 | Extended planning horizon (default 2×), truncate to user window |
 | 0.3.2 | **`overdue`** aligned with scheduling grace rule; carry-in cross-ref |
 | 0.3.1 | Unplanned instances: timing pain on day after **`H_end`** |
