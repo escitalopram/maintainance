@@ -1,6 +1,6 @@
 # Personal maintenance planner — Requirements v0.3
 
-Status: **Draft for sign-off**. Planning: [planning-algorithm.md](./planning-algorithm.md). Tech stack: [tech-stack.md](./tech-stack.md) (if present).
+Status: **Draft for sign-off**. Planning: [planning-algorithm.md](./planning-algorithm.md). Tech stack: [tech-stack.md](./tech-stack.md).
 
 ## 1. Purpose
 
