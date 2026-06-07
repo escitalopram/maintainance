@@ -1,6 +1,6 @@
-# Planning algorithm — specification (v0.1)
+# Planning algorithm — specification (v0.3)
 
-Procedural spec for **planning** (assigning **planned** dates). Pain formulas: [pain-model.md](./pain-model.md). Instance generation: [scheduling-model.md](./scheduling-model.md) (when present).
+Procedural spec for **planning** (assigning **planned** dates). Pain formulas: [pain-model.md](./pain-model.md). Instance generation: [scheduling-model.md](./scheduling-model.md).
 
 **Status:** Locked for v1 implementation.
 
@@ -30,23 +30,32 @@ Scheduling steps 1–2 are defined in scheduling-model; this document starts at 
 
 ---
 
-## 3. Feasible days `F_i`
+## 3. Feasible days `F_i` (minimal)
 
-For each plannable instance **i**, **`F_i`** is the set of calendar days **d** in `[H_start, H_end]` such that:
+**Season, allowed weekdays, min gap, interval grid, and archive** are enforced by the **scheduler** when producing **`scheduled_at`**. The planner does **not** re-apply them.
 
-| Rule | Condition |
-|------|-----------|
-| Horizon | `H_start <= d <= H_end` |
-| Allowed weekdays | `d` matches task weekday rules (if any) |
-| Seasonal window | `d` inside seasonal window (if any) |
-| Snooze | `d >= snooze_until` (if set on this instance) |
-| Archived | Forward virtuals excluded; **catch-up backlog** rows still plannable |
+For each instance **i**:
 
-**`d0_i`** = earliest day in **`F_i`** (first feasible day). Used by Regime B in pain-model.
+```
+F_i = { d | H_start <= d <= H_end
+          AND (snooze_until is null OR d >= snooze_until) }
+```
 
-**ASAP / external due:** same as other instances once an open row exists; **`F_i`** from horizon start subject to snooze/weekdays.
+| Rule | Owner |
+|------|--------|
+| Horizon | Planner |
+| Snooze (defer placement) | Planner — **`scheduled_at`** unchanged (pain still uses **s**) |
+| Allowed weekdays, season, end date, … | **Scheduler** only |
 
-Days **not** in **`F_i`** are never chosen; they are not “infinite pain” days.
+**`d0_i`** = earliest day in **`F_i`**. Used by Regime B ([pain-model.md](./pain-model.md)).
+
+**Beyond horizon (reference only, not in `F_i`):**
+
+```
+p_beyond = calendar day immediately after H_end
+```
+
+Used for **unassigned** pain (§8) — not a valid assignment day.
 
 ---
 
@@ -158,26 +167,58 @@ If strict assignment leaves **unassigned** instances:
 
 Prefer placing overflow on days with **most remaining slack** first, then by pain — details in §9.
 
-Instances still unassignable after overflow (e.g. no **`F_i`** overlap with horizon) → warning **`unassigned_instances`**.
+Instances still unassignable after overflow → **`unassigned_instances`** (§8).
 
-### 7.5 Pain
+### 7.5 Mandatory assignment
+
+If **`F_i`** is **non-empty**, instance **i** **must** receive a **`planned_at`** in strict or overflow phase.
+
+**Unassigned** ( **`planned_at` null** ) only when **`F_i`** is **empty** (e.g. entire horizon before **`snooze_until`**, or no instance in horizon scope from scheduler).
+
+### 7.6 Pain
 
 **`P_daily`** uses **`rho(L(d))`** for the **final** loads (including overflow). High **`L(d)`** on overflow days is both flagged and penalized by pain.
 
 ---
 
-## 8. Pain (reference)
+## 8. Pain and unassigned instances
 
-Total objective (minimize):
+### 8.1 Assigned instances
 
 ```
 P_total = P_timing + P_daily
 ```
 
 - **Timing:** Regime A/B + backlog **`M(c)`** — [pain-model.md](./pain-model.md).
-- **Daily:** **`rho(L(d))`** per day.
+- **Daily:** **`rho(L(d))`** for each day **d** in the horizon (final loads, including overflow).
 
-No pain cap; compare **`P_total`** to **`P*`** for UI only.
+Minimize **`P_total`** over assignments (subject to §7).
+
+### 8.2 Unassigned instances (on the plan, not placed)
+
+Instances with **`F_i` empty** appear on the plan with **`plannedAt: null`**, **`placement: "unassigned"`**.
+
+**No separate pain formula.** Use the **same timing pain** as if the instance were planned on **`p_beyond`** (day after **`H_end`**):
+
+```
+timing_pain_unassigned(i) = timing_pain(i, p = p_beyond)
+```
+
+- Use **Regime A** only (**`p_beyond`** is never **`d0`** and not in the horizon).
+- Apply backlog **`M(c)`** the same as for assigned instances.
+- **No **`P_daily`** contribution** (no minutes on any horizon day).
+
+**Plan totals:**
+
+```
+P_total_reported = P_timing + P_daily + sum over unassigned i of timing_pain_unassigned(i)
+```
+
+This makes leaving work **outside the horizon** cost the same as slipping it to the **first day after the horizon** — important tasks (high **`w`**, backlog **`M(c)`**) score high, without a new penalty type.
+
+**Optimizer note:** When **`F_i`** is non-empty, assignment is **mandatory**; reference pain is for **reporting** and comparing plans. When comparing alternative horizons in the UI, unassigned reference pain shows cost of “not in this window.”
+
+No pain cap; compare **`P_total_reported`** to **`P*`** for UI only.
 
 ---
 
@@ -242,10 +283,11 @@ After optimization, compute **`within_day_order`** per day (section 5).
 {
   "horizonStart": "2026-06-01",
   "horizonEnd": "2026-06-07",
-  "pTotal": 42.5,
-  "pStar": 100,
-  "pTiming": 30.0,
+  "pTotal": 48.0,
+  "pTiming": 35.0,
+  "pTimingUnassigned": 6.0,
   "pDaily": 12.5,
+  "pStar": 100,
   "days": [
     { "date": "2026-06-01", "loadMinutes": 90, "overHardCap": false, "dailyPain": 4.2 }
   ],
@@ -260,14 +302,23 @@ After optimization, compute **`within_day_order`** per day (section 5).
       "withinDayOrder": 0,
       "timingPain": 0,
       "durationMinutes": 15
+    },
+    {
+      "instanceKey": "...",
+      "taskId": "...",
+      "scheduledAt": "2026-05-20",
+      "plannedAt": null,
+      "placement": "unassigned",
+      "timingPain": 6.0,
+      "durationMinutes": 10
     }
   ],
   "warnings": ["plan_underflow_strict_cap"]
 }
 ```
 
-- **`instanceKey`:** persisted open id, or synthetic id for virtuals (`taskId + scheduledAt + backlogIndex`).  
-- **`warnings`:** e.g. `ordering_cycle`, `plan_underflow_strict_cap`, `unassigned_instances`, subtypes **`capacity_exceeded`**, **`packing_infeasible`**, **`instance_exceeds_day_cap`**.
+- **`pTotal`** = assigned timing + daily + unassigned reference timing (§8.2).  
+- **`warnings`:** e.g. `ordering_cycle`, `plan_underflow_strict_cap`, `unassigned_instances`, …
 
 ---
 
@@ -295,7 +346,8 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 | Strict cap | Instances spread off **`d0`** when ideal day full |
 | 7×3 min cap, 8×2 min tasks | 7 assigned strict; 8th triggers overflow / warning |
 | A before B same day | B always **`within_day_order` > A** |
-| Snooze | Nothing planned before **`snooze_until`** |
+| Snooze blocks whole horizon | **`unassigned`**, **`timingPain`** = pain at **`p_beyond`** |
+| Unassigned on plan | **`plannedAt: null`**, included in **`pTimingUnassigned`** |
 | Mark done | Only completion stores **`planned_at`** |
 
 ---
@@ -314,5 +366,6 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 
 | Version | Notes |
 |---------|--------|
+| 0.3 | Minimal **`F_i`** (horizon + snooze); unassigned pain at **`p_beyond`**; mandatory assign |
 | 0.2 | **`H_hard`** strict + overflow pass; bin-packing infeasibility |
 | 0.1 | Initial: pipeline, F_i, ordering, ephemeral planned_at |

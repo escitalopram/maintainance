@@ -13,7 +13,7 @@ Readable formulas only. Defines **when instances exist** and their **scheduled**
 | **Scheduling** | When must this occurrence exist (ideal time)? | **Scheduled** date `s` per instance |
 | **Planning** | Which calendar day should I do it in this horizon? | **Planned** date `p` |
 
-Scheduling runs **before** planning. Planning reads scheduled instances (open backlog + ephemeral horizon projection).
+Scheduling runs **before** planning. Planning reads scheduled instances (open backlog + ephemeral horizon projection). **Season, weekdays, and interval grid** are applied here so the planner only needs horizon + snooze ([planning-algorithm.md](./planning-algorithm.md) §3).
 
 ---
 
@@ -113,8 +113,7 @@ if catch_up_count == 0:
 ## 4. Snooze (locked)
 
 - **`scheduled_at`** (`s`): ideal date from rules — **unchanged** by snooze (used by planning pain / Regime A).
-- **`snooze_until`**: optional date on open instance; planning cannot place before this day.
-- **Feasible days** for planning: `F_i` excludes days before `snooze_until` (see pain-model `d0`).
+- **`snooze_until`**: optional date on open instance; planner **`F_i`** excludes days before this (see planning-algorithm §3).
 
 Scheduling does not move `s` when user snoozes.
 
@@ -358,6 +357,6 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 
 | Version | Notes |
 |---------|--------|
-| 0.3 | Catch-up: last missed + count; catch-up independent of interval type |
+| 0.3 | Catch-up: last missed + count; planner uses minimal **`F_i`** (horizon + snooze only) |
 | 0.2 | TBD review locked; ephemeral horizon; snooze; on-read opens; due script contract |
 | 0.1 | Coarse draft |
