@@ -102,23 +102,67 @@ Multiple backlog virtuals of the **same** task on one day: any order unless edge
 
 ---
 
-## 7. Daily cap `H_hard` — best effort
+## 7. Daily cap `H_hard` — hard constraint (with overflow)
 
-**Assignment** does **not** treat **`H_hard`** as a hard stop.
+**`H_hard`** is a **per-day minute limit** on planned work. It is **not** a soft suggestion.
 
-- Planner assigns all instances to minimize pain (may exceed **`H_hard`** on some days).
-- For each day **d** in the result:
+### 7.1 Normal assignment (strict)
+
+When placing instance **i** on day **d**:
 
 ```
-L(d) = sum of duration_minutes for instances planned on d
-over_hard_cap(d) = (L(d) > H_hard)
+allow  <=>  L(d) + d_i <= H_hard
 ```
 
-**`PlanResult.days[]`** includes **`over_hard_cap`** boolean per day for UI (warn / highlight).
+If no day in **`F_i`** satisfies this, the instance is **not** placed in strict mode (held for overflow pass).
 
-**Pain** from **`P_daily`** still uses **`rho(L)`** for all **`L`** (including **`L > H_hard`**). No separate “hard reject” in v1.
+**Effect:** the planner **must** use days other than **`scheduled_at` / grace / `d0`** when the ideal day is full — even if **timing pain** is higher there. That fixes clustering on ideal days when **`H_hard`** would be exceeded.
 
-*(This clarifies implementation vs pain-model “hard constraint” wording: assignment is best-effort; overload is flagged, not forbidden.)*
+### 7.2 When may `L(d) > H_hard` happen?
+
+**Only** when it is **impossible** to assign **every** instance to **some** day in its **`F_i`** such that **`L(d) <= H_hard`** for **all** days **d** in the horizon.
+
+Typical impossibility cases:
+
+| Case | Example |
+|------|---------|
+| **A. Total overload** | Sum of all instance durations **>** total assignable capacity in the horizon (see §7.3). |
+| **B. Bin-packing margin** | Aggregate capacity is enough, but **no** placement fits: e.g. **7** days × **`H_hard = 3`**, **8** instances × **2** min — each day fits at most one 2-min task (1 min left); **7** placed, **8th** cannot fit anywhere without exceeding **`H_hard`** on some day. |
+| **C. Single instance too large** | One instance has **`d_i > H_hard`** — strict mode can never place it without exceed on that day. |
+
+In those cases the planner runs an **overflow pass** (§7.4). Days with **`L(d) > H_hard`** after overflow get **`over_hard_cap: true`**.
+
+If strict mode succeeds for **all** instances, **`over_hard_cap`** is **false** on **every** day.
+
+### 7.3 Horizon capacity (for diagnostics)
+
+For each calendar day **d** in `[H_start, H_end]`:
+
+```
+cap(d) = H_hard   (same for all days in v1)
+C_total = sum over days d in horizon of cap(d)
+D_total = sum of d_i over all instances to plan
+```
+
+- **`D_total > C_total`** → case **A** (total overload).  
+- **`D_total <= C_total`** but strict assignment fails → case **B** (packing).  
+- **`max(d_i) > H_hard`** → case **C**.
+
+### 7.4 Overflow pass
+
+If strict assignment leaves **unassigned** instances:
+
+1. Set warning **`plan_underflow_strict_cap`** (and subtype **A** / **B** / **C** if detected).  
+2. Assign remaining instances minimizing **`P_total`**, **allowing** **`L(d) > H_hard`**.  
+3. Flag each day with **`L(d) > H_hard`** as **`over_hard_cap`**.
+
+Prefer placing overflow on days with **most remaining slack** first, then by pain — details in §9.
+
+Instances still unassignable after overflow (e.g. no **`F_i`** overlap with horizon) → warning **`unassigned_instances`**.
+
+### 7.5 Pain
+
+**`P_daily`** uses **`rho(L(d))`** for the **final** loads (including overflow). High **`L(d)`** on overflow days is both flagged and penalized by pain.
 
 ---
 
@@ -148,23 +192,31 @@ Process instances in this priority (stable sort):
 3. Earlier **`scheduled_at`**  
 4. Lower task id (tie-break)
 
-### 9.2 Greedy assignment
+### 9.2 Greedy assignment (two phases)
+
+#### Phase 1 — strict `H_hard`
 
 For each instance **i** in order:
 
 ```
 best = null
 for each day d in F_i in chronological order:
+    if L(d) + d_i > H_hard:
+        skip d
     if assigning i -> d keeps same-day ordering potentially satisfiable:
         delta_P = marginal increase in P_total
-        if best is null or delta_P < best.delta_P:
-            best = (d, delta_P)
-        else if delta_P == best.delta_P and d earlier:
-            best = (d, delta_P)
-assign i to best.d (fallback: first day in F_i if all equal)
+        pick d with minimum delta_P (tie: earlier d)
+if best found:
+    assign i to best.d
+else:
+    leave i unassigned for overflow pass
 ```
 
-**Marginal pain** includes:
+#### Phase 2 — overflow (only if unassigned remain)
+
+Run §7.4: assign remaining instances allowing **`L(d) > H_hard`**, minimize **`P_total`**.
+
+**Marginal pain** in both phases includes:
 
 - Change in **timing_pain** (Regime A/B, **`M(c)`** for backlog virtuals)  
 - Change in **`rho(L(d))`** for affected days  
@@ -173,8 +225,8 @@ assign i to best.d (fallback: first day in F_i if all equal)
 
 Repeat until no improvement or **max_iterations** (e.g. 1000):
 
-- **Move:** reassign one instance to another day in **`F_i`** if **`P_total`** decreases and same-day order can be satisfied.  
-- **Swap:** exchange planned days of two instances if feasible and **`P_total`** decreases.
+- **Move / swap** only among assignments that satisfy **`L(d) <= H_hard`** if **strict mode succeeded for all instances**.  
+- If **overflow** was used, allow moves that keep **`P_total`** lower; may keep or reduce **`over_hard_cap`** days.
 
 Re-run within-day topological sort after each change.
 
@@ -210,12 +262,12 @@ After optimization, compute **`within_day_order`** per day (section 5).
       "durationMinutes": 15
     }
   ],
-  "warnings": []
+  "warnings": ["plan_underflow_strict_cap"]
 }
 ```
 
 - **`instanceKey`:** persisted open id, or synthetic id for virtuals (`taskId + scheduledAt + backlogIndex`).  
-- **`warnings`:** e.g. `ordering_cycle`, `no_feasible_day` (instance unassigned — should be rare).
+- **`warnings`:** e.g. `ordering_cycle`, `plan_underflow_strict_cap`, `unassigned_instances`, subtypes **`capacity_exceeded`**, **`packing_infeasible`**, **`instance_exceeds_day_cap`**.
 
 ---
 
@@ -239,7 +291,9 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 | Regime B | Timing pain 0 on **`d0`**, rises on **`d0+1`** |
 | Two tasks, same slip | Earlier **`scheduled_at`** → higher pain |
 | Backlog **c=3**, **backlog_p=0.6** | Higher timing pain than **c=1** |
-| Overload day | **`overHardCap`** true; **`rho(L)`** high |
+| Overload day | Only after overflow pass; **`overHardCap`** true |
+| Strict cap | Instances spread off **`d0`** when ideal day full |
+| 7×3 min cap, 8×2 min tasks | 7 assigned strict; 8th triggers overflow / warning |
 | A before B same day | B always **`within_day_order` > A** |
 | Snooze | Nothing planned before **`snooze_until`** |
 | Mark done | Only completion stores **`planned_at`** |
@@ -260,4 +314,5 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 
 | Version | Notes |
 |---------|--------|
-| 0.1 | Initial: pipeline, F_i, ordering, best-effort H_hard flag, ephemeral planned_at |
+| 0.2 | **`H_hard`** strict + overflow pass; bin-packing infeasibility |
+| 0.1 | Initial: pipeline, F_i, ordering, ephemeral planned_at |

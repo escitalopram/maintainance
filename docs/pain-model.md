@@ -262,28 +262,25 @@ else:
 P_daily = sum over days d in D of rho(L(d))
 ```
 
-**Hard constraint (assignment):** See [planning-algorithm.md](./planning-algorithm.md): v1 planner is **best-effort** — days may exceed **`H_hard`** and are flagged **`over_hard_cap`**. Pain **`rho(L)`** still applies for all **`L`**.
-
-**Hard constraint (legacy wording):** Do not use **`L > H_hard`** to forbid assignment in v1.
+**Assignment:** **`L(d) <= H_hard`** for every day in the **strict** plan. See [planning-algorithm.md](./planning-algorithm.md) §7: exceed only in **overflow** when strict placement of **all** instances is impossible.
 
 | Setting | Role |
 |---------|------|
 | T | Soft minute threshold |
 | P_T | Pain at T |
 | k | Pain per minute above T |
-| H_hard | Hard daily cap (minutes) |
+| H_hard | **Hard** daily cap (minutes) under strict assignment |
 
 ---
 
 ## 8. Hard constraints (planning)
 
 1. `p_i in F_i`
-2. Same-day ordering (hard when same day) — [planning-algorithm.md](./planning-algorithm.md)
-3. Each instance assigned exactly once (best-effort; flag overload days)
+2. **`L(d) <= H_hard`** for all days **d** after strict assignment (overflow excepted — planning-algorithm §7)
+3. Same-day ordering (hard when same day) — [planning-algorithm.md](./planning-algorithm.md)
+4. Each instance assigned exactly once, or overflow / **`unassigned_instances`** warning
 
-**Not constrained by:** `P*`, `P_total`, or **`H_hard`** as assignment forbidder (overload flagged separately).
-
-*(Former item “`L(day) <= H_hard`” moved to planning-algorithm best-effort rule.)*
+**Not constrained by:** `P*` or `P_total`.
 
 ---
 
@@ -349,7 +346,8 @@ catch_up_count = 3, beta = 0.5, backlog_p = 0.6 → M ≈ 1.83. On d0+1, base = 
 | Version | Notes |
 |---------|--------|
 | 0.4 | Backlog multiplier M(c) = 1 + beta * (c-1)^backlog_p; backlog_p per task |
-| 0.3.1 | H_hard assignment → planning-algorithm (best-effort + flag) |
+| 0.3.2 | H_hard strict assignment; overflow only if impossible (planning-algorithm §7) |
+| 0.3.1 | H_hard cross-ref to planning-algorithm |
 | 0.3 | Single P_timing; overdue = 0 at d0 else Regime A |
 | 0.2 | Grace window; separate P_overdue at d0 |
 | 0.1 | Initial draft |
