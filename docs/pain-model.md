@@ -1,4 +1,4 @@
-# Pain model — mathematical specification (v0.4.2)
+# Pain model — mathematical specification (v0.4.3)
 
 Readable formulas only (no LaTeX). Implements [requirements.md](./requirements.md) §8.
 
@@ -30,7 +30,7 @@ Readable formulas only (no LaTeX). Implements [requirements.md](./requirements.m
 | idx(day) | 0-based index in D (0 = H_start) |
 | c | **catch_up_count** for the task (scheduling-model); 0 if not in backlog |
 
-**Overdue (planning):** instance is open, and the grace window around s_i has **fully ended** before planning starts (typically before H_start). Exact rule can align with “scheduled before horizon and outside grace at H_start”.
+**Overdue (planning):** same as scheduling ([scheduling-model.md](./scheduling-model.md) §9.2): open instance with **`scheduled_at < H_start`**, grace **fully ended** at **`H_start`**. In-grace carry-in before **`H_start`** is **not** overdue — Regime A only.
 
 ---
 
@@ -371,6 +371,7 @@ catch_up_count = 3, beta = 0.5, backlog_p = 0.6 → M ≈ 1.83. On d0+1, base = 
 
 | Version | Notes |
 |---------|--------|
+| 0.4.3 | **`overdue`** cross-ref scheduling grace rule |
 | 0.4.2 | Unplanned instances: timing pain on day after **`H_end`** (wording) |
 | 0.4.1 | Unassigned timing pain at **`p_beyond`**; minimal **`F_i`** |
 | 0.4 | Backlog multiplier; **`backlog_p`** per task |

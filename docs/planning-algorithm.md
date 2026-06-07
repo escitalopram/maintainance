@@ -1,4 +1,4 @@
-# Planning algorithm — specification (v0.3.1)
+# Planning algorithm — specification (v0.3.2)
 
 Procedural spec for **planning** (assigning **planned** dates). Pain formulas: [pain-model.md](./pain-model.md). Instance generation: [scheduling-model.md](./scheduling-model.md).
 
@@ -61,7 +61,7 @@ p_beyond = calendar day immediately after H_end
 
 ## 4. Overdue for Regime B (planning)
 
-An instance uses **Regime B** (0 timing pain on **`d0_i`**) when **both**:
+An instance uses **Regime B** (0 timing pain on **`d0_i`**) when scheduling marks it **`overdue`** at **`H_start`** ([scheduling-model.md](./scheduling-model.md) §9.2) — equivalently **both**:
 
 1. **`scheduled_at < H_start`** (or `< today` when `H_start = today`), and  
 2. **Grace has ended** as of **`H_start`**:  
@@ -347,6 +347,8 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 | 7×3 min cap, 8×2 min tasks | 7 assigned strict; 8th triggers overflow / warning |
 | A before B same day | B always **`within_day_order` > A** |
 | Snooze blocks whole horizon | **`unassigned`**, **`timingPain`** = pain at **`p_beyond`** |
+| In-grace carry-in | **`scheduled_at < H_start`**, grace covers **`H_start`** → **`overdue = false`**, Regime A on **`d0`** |
+| Slip past horizon in grace | Unplanned; **`timingPain`** at **`p_beyond`** low if **`p_beyond`** still in grace |
 | Unassigned on plan | **`plannedAt: null`**, included in **`pTimingUnassigned`** |
 | Mark done | Only completion stores **`planned_at`** |
 
@@ -366,6 +368,7 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 
 | Version | Notes |
 |---------|--------|
+| 0.3.2 | **`overdue`** aligned with scheduling grace rule; carry-in cross-ref |
 | 0.3.1 | Unplanned instances: timing pain on day after **`H_end`** |
 | 0.3 | Minimal **`F_i`** (horizon + snooze); unassigned pain at **`p_beyond`**; mandatory assign |
 | 0.2 | **`H_hard`** strict + overflow pass; bin-packing infeasibility |
