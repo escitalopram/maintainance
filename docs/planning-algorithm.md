@@ -1,4 +1,4 @@
-# Planning algorithm — specification (v0.3)
+# Planning algorithm — specification (v0.3.1)
 
 Procedural spec for **planning** (assigning **planned** dates). Pain formulas: [pain-model.md](./pain-model.md). Instance generation: [scheduling-model.md](./scheduling-model.md).
 
@@ -55,7 +55,7 @@ F_i = { d | H_start <= d <= H_end
 p_beyond = calendar day immediately after H_end
 ```
 
-Used for **unassigned** pain (§8) — not a valid assignment day.
+**Unplanned instances** (no **`planned_at`** on the plan) use **timing pain at `p_beyond`** — the same curve as if the work slipped to the first day after the horizon (§8.2). Not a valid assignment day.
 
 ---
 
@@ -194,11 +194,11 @@ P_total = P_timing + P_daily
 
 Minimize **`P_total`** over assignments (subject to §7).
 
-### 8.2 Unassigned instances (on the plan, not placed)
+### 8.2 Unplanned instances (on the plan, not placed)
 
-Instances with **`F_i` empty** appear on the plan with **`plannedAt: null`**, **`placement: "unassigned"`**.
+Instances without a **`planned_at`** appear on the plan with **`plannedAt: null`**, **`placement: "unassigned"`**. Typical case: **`F_i` empty** (e.g. snooze blocks the whole horizon).
 
-**No separate pain formula.** Use the **same timing pain** as if the instance were planned on **`p_beyond`** (day after **`H_end`**):
+**Rule:** use **timing pain for the day after `H_end`** — evaluate the usual timing curve at **`p_beyond`**, not a new formula:
 
 ```
 timing_pain_unassigned(i) = timing_pain(i, p = p_beyond)
@@ -366,6 +366,7 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 
 | Version | Notes |
 |---------|--------|
+| 0.3.1 | Unplanned instances: timing pain on day after **`H_end`** |
 | 0.3 | Minimal **`F_i`** (horizon + snooze); unassigned pain at **`p_beyond`**; mandatory assign |
 | 0.2 | **`H_hard`** strict + overflow pass; bin-packing infeasibility |
 | 0.1 | Initial: pipeline, F_i, ordering, ephemeral planned_at |

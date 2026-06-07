@@ -1,4 +1,4 @@
-# Pain model — mathematical specification (v0.4)
+# Pain model — mathematical specification (v0.4.2)
 
 Readable formulas only (no LaTeX). Implements [requirements.md](./requirements.md) §8.
 
@@ -26,7 +26,7 @@ Readable formulas only (no LaTeX). Implements [requirements.md](./requirements.m
 | L(day) | Sum of d_i for all instances planned on that day |
 | F_i | Feasible plan days: horizon ∩ snooze (see planning-algorithm); **not** season/weekdays |
 | d0_i | **First feasible day:** earliest day in F_i |
-| p_beyond | Calendar day **after H_end**; reference for unassigned timing pain |
+| p_beyond | Calendar day **after H_end**; timing pain reference for unplanned instances |
 | idx(day) | 0-based index in D (0 = H_start) |
 | c | **catch_up_count** for the task (scheduling-model); 0 if not in backlog |
 
@@ -79,15 +79,17 @@ else:
 - **Forward** instances (ephemeral slots in the horizon, not backlog) use **M = 1** even on catch-up tasks.
 - **`P_daily`** is unchanged (duration still stacks when several backlog items land on one day).
 
-### 3.2 Unassigned instances — pain at `p_beyond`
+### 3.2 Unplanned instances — pain on the day after the horizon
 
-When an instance appears on the plan but **`planned_at`** is null (**`F_i` empty** — see planning-algorithm §7.5, §8.2):
+When an instance appears on the plan but has no **`planned_at`** (unplanned / unassigned — see planning-algorithm §7.5, §8.2), **use its timing pain for the calendar day immediately after `H_end`**. No separate unassigned penalty.
 
 ```
+p_beyond = calendar day immediately after H_end
+
 timing_pain_unassigned(i) = timing_pain(i, p = p_beyond)
 ```
 
-- **`p_beyond`** = calendar day immediately after **`H_end`**
+- **`p_beyond`** is a **reference date only** — not a valid assignment day
 - Compute with **Regime A** only (**`p_beyond`** ∉ **`F_i`**, never Regime B **`d0`**)
 - Apply backlog **`M(c)`** as for assigned instances
 - Does **not** add to **`P_daily`**
@@ -369,6 +371,7 @@ catch_up_count = 3, beta = 0.5, backlog_p = 0.6 → M ≈ 1.83. On d0+1, base = 
 
 | Version | Notes |
 |---------|--------|
+| 0.4.2 | Unplanned instances: timing pain on day after **`H_end`** (wording) |
 | 0.4.1 | Unassigned timing pain at **`p_beyond`**; minimal **`F_i`** |
 | 0.4 | Backlog multiplier; **`backlog_p`** per task |
 | 0.3.2 | H_hard strict assignment (planning-algorithm) |

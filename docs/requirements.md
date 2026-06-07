@@ -1,4 +1,4 @@
-# Personal maintenance planner — Requirements v0.3
+# Personal maintenance planner — Requirements v0.3.1
 
 Status: **Draft for sign-off**. Planning: [planning-algorithm.md](./planning-algorithm.md). Tech stack: [tech-stack.md](./tech-stack.md).
 
@@ -46,6 +46,7 @@ Assigns **planned** dates/times within the horizon using flexibility, importance
 
 - **Same-day ordering:** hard constraint (cosmetic).
 - **Preferred time of day:** display hint in v1 unless specified later.
+- **Unplanned instances** (shown on the plan but not placed in the horizon): reported timing pain uses the **day immediately after `H_end`** — see [pain-model.md](./pain-model.md) §3.2.
 
 ### 3.3 Horizon assumptions
 
