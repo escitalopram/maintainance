@@ -1,4 +1,4 @@
-# Planning algorithm — specification (v0.3.2)
+# Planning algorithm — specification (v0.3.3)
 
 Procedural spec for **planning** (assigning **planned** dates). Pain formulas: [pain-model.md](./pain-model.md). Instance generation: [scheduling-model.md](./scheduling-model.md).
 
@@ -19,14 +19,55 @@ Given a horizon `[H_start, H_end]` and current task state, produce a **plan**: a
 ```
 plan(horizonStart, horizonEnd, settings, tasks):
     1. reconcileOnRead(tasks)              // scheduling: opens, catch_up_count, etc.
-    2. instances = scheduleHorizon(...)    // opens + backlog virtuals + forward virtuals
-    3. for each instance in instances:
-           build F_i                       // feasible days (section 3)
-    4. assignment = planAssign(instances, F_i, settings)   // section 5
-    5. return PlanResult(assignment, pains, flags)         // section 7
+    2. H_user = [horizonStart, horizonEnd]
+       H_plan = extendHorizon(H_user)           // section 2.1 (default 2× span)
+    3. instances = scheduleHorizon(tasks, H_user.start, H_plan.end)
+    4. for each instance in instances:
+           build F_i on H_plan                  // section 3
+    5. assignment = planAssign(instances, F_i, settings)
+    6. return truncatePlan(assignment, H_user) // section 2.1 — user-visible result
 ```
 
-Scheduling steps 1–2 are defined in scheduling-model; this document starts at **feasible days** and **assignment**.
+Scheduling steps 1–3 are defined in scheduling-model; this document starts at **feasible days** and **assignment**.
+
+### 2.1 Extended planning horizon (lookahead)
+
+**Problem:** A hard cutoff at **`H_user_end`** creates boundary effects: the optimizer may **cluster** work on the last user day, trigger **overflow** unnecessarily, or make **local-search** moves that look optimal only because there is “nowhere left to go.” Unplanned reference pain at **`p_beyond`** is correct but should not **distort** placement **inside** the user window.
+
+**Strategy:** Plan on a **longer internal horizon** than the user requested, then **truncate** to the user span for display and API output.
+
+| Symbol | Meaning |
+|--------|---------|
+| **`H_user`** | `[U_start, U_end]` — what the user asked for (week / month). |
+| **`H_plan`** | Extended horizon used for **`F_i`**, assignment, and **`P_total`** optimization. |
+| **`p_beyond`** | Always **`U_end + 1 day`** — **not** the internal extended end. |
+
+**Default extension (v1):** **2× span** — same start, end pushed forward by the user horizon length:
+
+```
+len = calendar_days(U_start, U_end)    // inclusive count
+U_plan_end = U_end + len               // e.g. 7-day user window → plan 14 days from U_start
+H_plan = [U_start, U_plan_end]
+```
+
+**`extend_factor`** (global setting, default **2**) may generalize this later; v1 uses **2×** as above.
+
+**Truncation (`truncatePlan`):**
+
+| Internal assignment **`p`** | User-visible result |
+|----------------------------|---------------------|
+| **`U_start <= p <= U_end`** | **`planned_at = p`** (normal assigned row) |
+| **`p > U_end`** or unassigned internally | **`planned_at = null`**, **`placement: "unassigned"`**; **`timingPain`** at **`p_beyond`** (§8.2) |
+
+- **`P_total`** is minimized over the **full **`H_plan`** assignment** (including days after **`U_end`**).
+- **`P_total_reported`**, daily loads **`L(d)`**, **`over_hard_cap`**, and API **`horizonEnd`** reflect **`H_user` only**.
+- **Scheduling **`overdue`** / carry-in** still use **`U_start`** as **`H_start`** (user horizon start), not the extended tail.
+
+**What this fixes:** last-day cramming, spurious overflow when work would naturally sit just after the user window, and greedy/local-search edge behavior at the cutoff.
+
+**What it does not fix:** true overload inside **`H_user`**, snooze blocking the whole user window, or mandatory unplanned rows when internal placement lands only in the extended tail (those become user-visible unplanned with **`p_beyond`** pain — intentional).
+
+**Implementation note:** Run **`scheduleHorizon`** through **`H_plan.end`** so forward virtuals exist in the extension; **`F_i`** uses **`H_plan.end`**, not **`U_end`**.
 
 ---
 
@@ -34,12 +75,16 @@ Scheduling steps 1–2 are defined in scheduling-model; this document starts at 
 
 **Season, allowed weekdays, min gap, interval grid, and archive** are enforced by the **scheduler** when producing **`scheduled_at`**. The planner does **not** re-apply them.
 
-For each instance **i**:
+For each instance **i**, build **`F_i`** over the **planning horizon** **`H_plan`** (§2.1), not the user cutoff alone:
 
 ```
-F_i = { d | H_start <= d <= H_end
+F_i = { d | U_start <= d <= U_plan_end
           AND (snooze_until is null OR d >= snooze_until) }
 ```
+
+**`U_start`** / **`U_plan_end`** = bounds of **`H_plan`**.
+
+**User-visible `p_beyond` and reported daily load** still use **`H_user`** = `[U_start, U_end]` (§2.1).
 
 | Rule | Owner |
 |------|--------|
@@ -49,10 +94,10 @@ F_i = { d | H_start <= d <= H_end
 
 **`d0_i`** = earliest day in **`F_i`**. Used by Regime B ([pain-model.md](./pain-model.md)).
 
-**Beyond horizon (reference only, not in `F_i`):**
+**Beyond user horizon (reference only, not in user-visible plan):**
 
 ```
-p_beyond = calendar day immediately after H_end
+p_beyond = calendar day immediately after U_end    // user horizon end, not U_plan_end
 ```
 
 **Unplanned instances** (no **`planned_at`** on the plan) use **timing pain at `p_beyond`** — the same curve as if the work slipped to the first day after the horizon (§8.2). Not a valid assignment day.
@@ -349,6 +394,7 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 | Snooze blocks whole horizon | **`unassigned`**, **`timingPain`** = pain at **`p_beyond`** |
 | In-grace carry-in | **`scheduled_at < H_start`**, grace covers **`H_start`** → **`overdue = false`**, Regime A on **`d0`** |
 | Slip past horizon in grace | Unplanned; **`timingPain`** at **`p_beyond`** low if **`p_beyond`** still in grace |
+| Extended horizon (2×) | Internal assign on day **`U_end + 1`** → user view **unplanned**; no last-day cram |
 | Unassigned on plan | **`plannedAt: null`**, included in **`pTimingUnassigned`** |
 | Mark done | Only completion stores **`planned_at`** |
 
@@ -368,6 +414,7 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 
 | Version | Notes |
 |---------|--------|
+| 0.3.3 | Extended planning horizon (default 2×), truncate to user window |
 | 0.3.2 | **`overdue`** aligned with scheduling grace rule; carry-in cross-ref |
 | 0.3.1 | Unplanned instances: timing pain on day after **`H_end`** |
 | 0.3 | Minimal **`F_i`** (horizon + snooze); unassigned pain at **`p_beyond`**; mandatory assign |

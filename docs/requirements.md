@@ -1,4 +1,4 @@
-# Personal maintenance planner — Requirements v0.3.2
+# Personal maintenance planner — Requirements v0.3.3
 
 Status: **Draft for sign-off**. Planning: [planning-algorithm.md](./planning-algorithm.md). Tech stack: [tech-stack.md](./tech-stack.md).
 
@@ -44,6 +44,7 @@ Computes **scheduled** instances in `[H_start, H_end]`, plus **open obligations 
 
 Assigns **planned** dates/times within the horizon using flexibility, importance, duration, same-day ordering, and daily time/pain rules.
 
+- **Planning lookahead:** optimize on an **extended horizon** (default **2×** user span), then **truncate** to the requested window ([planning-algorithm.md](./planning-algorithm.md) §2.1).
 - **Same-day ordering:** hard constraint (cosmetic).
 - **Preferred time of day:** display hint in v1 unless specified later.
 - **Unplanned instances** (shown on the plan but not placed in the horizon): reported timing pain uses the **day immediately after `H_end`** — see [pain-model.md](./pain-model.md) §3.2.
@@ -174,6 +175,7 @@ Optional “minimum achievable pain” analysis for comparison.
 
 | Version | Changes |
 |---------|---------|
+| v0.3.3 | Extended planning horizon (2×) with truncate to user window. |
 | v0.3.2 | Scheduling: in-grace carry-in before horizon; grace-aware overdue. |
 | v0.3.1 | Unplanned instances: reported timing pain on day after horizon end. |
 | v0.3 | No pain cap; min days between scheduled instances rule; clarified pain threshold is non-cap. |
