@@ -1,6 +1,6 @@
 # Tech stack (locked)
 
-Decisions for v1 of the personal maintenance planner. Functional specs: [requirements.md](./requirements.md), [scheduling-model.md](./scheduling-model.md), [pain-model.md](./pain-model.md).
+Decisions for v1 of the personal maintenance planner. Functional specs: [requirements.md](./requirements.md), [scheduling-model.md](./scheduling-model.md), [pain-model.md](./pain-model.md), [planning-algorithm.md](./planning-algorithm.md).
 
 ---
 
