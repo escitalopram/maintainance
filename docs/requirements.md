@@ -1,6 +1,6 @@
 # Personal maintenance planner — Requirements v0.3
 
-Status: **Draft for sign-off** (technical stack deferred).
+Status: **Draft for sign-off**. Planning: [planning-algorithm.md](./planning-algorithm.md). Tech stack: [tech-stack.md](./tech-stack.md) (if present).
 
 ## 1. Purpose
 
@@ -71,7 +71,7 @@ Let **now** = current time, **H_start** = horizon start.
 - **Seasonal window** (only schedule between given dates).
 - **End date:** after this, task is archived; no new instances (catch-up exception below).
 - **Minimum days between scheduled instances** (optional): enforces a minimum gap between two **scheduled** instances of the same task (resolves “Sat + Sun + every 7 days” vs one slot per week).
-- **Catch-up:** if yes, missed instances remain until done; if no, marking done clears obligation for missed instances (no doubling).
+- **Catch-up:** if yes, missed instances remain until done (any interval — daily, weekly, nth weekday of month, etc.); if no, marking done clears obligation for missed instances (no doubling). Independent of interval type.
 
 ### 4.2 Flexibility and priority
 
@@ -111,7 +111,7 @@ Let **now** = current time, **H_start** = horizon start.
 
 **Mark done (no catch-up):** satisfies current cycle; missed instances dropped.
 
-**Mark done (catch-up):** removes one open instance; others remain.
+**Mark done (catch-up):** decrement backlog count by one; others remain until count is zero.
 
 **Next scheduled:** last-completion anchor → from completion time; epoch anchor → from epoch/interval, not from off-day completion.
 
@@ -163,7 +163,7 @@ Optional “minimum achievable pain” analysis for comparison.
 | Task | Rules (summary) |
 |------|-----------------|
 | **DNS update** | Due function; when `true`, schedule ASAP; high importance; short duration. |
-| **15 items daily** | Daily interval; catch-up yes; multiple open instances if missed. |
+| **15 items** | Every day; catch-up yes; backlog = count + last missed (see scheduling-model). |
 | **Fingernails** | Last completion + *n* days; no catch-up; asymmetric flexibility. |
 | **Call father** | Epoch + every 7 days; allowed weekdays Sat/Sun; no catch-up; optional **min days between instances** if one slot per week is desired; epoch anchor. |
 

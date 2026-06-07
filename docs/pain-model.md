@@ -65,7 +65,7 @@ else:
 ### 3.1 Final timing pain (with backlog multiplier)
 
 ```
-base = timing from Regime A / B above (sections 4–5)
+base = timing from Regime A / B above (sections 5–6)
 
 if this instance is a catch-up backlog virtual (task has catch_up_count = c > 0):
     timing_pain = M(c) * base
@@ -262,7 +262,9 @@ else:
 P_daily = sum over days d in D of rho(L(d))
 ```
 
-**Hard constraint:** `L(day) <= H_hard` for every day.
+**Hard constraint (assignment):** See [planning-algorithm.md](./planning-algorithm.md): v1 planner is **best-effort** — days may exceed **`H_hard`** and are flagged **`over_hard_cap`**. Pain **`rho(L)`** still applies for all **`L`**.
+
+**Hard constraint (legacy wording):** Do not use **`L > H_hard`** to forbid assignment in v1.
 
 | Setting | Role |
 |---------|------|
@@ -273,14 +275,15 @@ P_daily = sum over days d in D of rho(L(d))
 
 ---
 
-## 8. Hard constraints
+## 8. Hard constraints (planning)
 
 1. `p_i in F_i`
-2. `L(day) <= H_hard`
-3. Same-day ordering (hard)
-4. Each instance assigned exactly once
+2. Same-day ordering (hard when same day) — [planning-algorithm.md](./planning-algorithm.md)
+3. Each instance assigned exactly once (best-effort; flag overload days)
 
-Not constrained by P* or P_total.
+**Not constrained by:** `P*`, `P_total`, or **`H_hard`** as assignment forbidder (overload flagged separately).
+
+*(Former item “`L(day) <= H_hard`” moved to planning-algorithm best-effort rule.)*
 
 ---
 
@@ -346,6 +349,7 @@ catch_up_count = 3, beta = 0.5, backlog_p = 0.6 → M ≈ 1.83. On d0+1, base = 
 | Version | Notes |
 |---------|--------|
 | 0.4 | Backlog multiplier M(c) = 1 + beta * (c-1)^backlog_p; backlog_p per task |
-| 0.3 | Single P_timing; overdue = 0 at d0 else Regime A; removed P_overdue and staleness×slip |
+| 0.3.1 | H_hard assignment → planning-algorithm (best-effort + flag) |
+| 0.3 | Single P_timing; overdue = 0 at d0 else Regime A |
 | 0.2 | Grace window; separate P_overdue at d0 |
 | 0.1 | Initial draft |
