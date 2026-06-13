@@ -23,7 +23,7 @@ Status: **active development branch** (spec + implementation).
 |------|----------------|----------|
 | **nth weekday of month** (e.g. 3rd Tuesday) | scheduling-model §5.1 | Not implemented |
 | **`every_n_years`** | scheduling-model §5.1 | Not implemented |
-| **Horizon assumptions** (`H_start > today`) | scheduling-model §8, requirements §3.3 | Gap assumptions ephemeral; reconcile uses wall-clock past only |
+| **Horizon assumptions** (`H_start > today`) | scheduling-model §8 | Gap assumed done silently; not shown in UI |
 | **Catch-up increment** | scheduling-model §3.3 | Incremental via **`last_reconciled_date`**; mark done decrements |
 | **Seasonal window** (full) | scheduling-model §5.5 | Partial / basic only |
 | **Allowed weekdays** in UI | requirements §4.1 | Backend snap exists; no editor control |

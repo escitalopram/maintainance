@@ -57,7 +57,7 @@ Let **today** = current calendar day (wall clock), **H_start** = horizon start.
 | Case | Behavior |
 |------|----------|
 | **H_start = today** | No assumed completions. Use actual DB state. |
-| **H_start > today** | **Gap** = slots with **`today ≤ S < H_start`**. Virtual instances may be projected in the gap; **not yet due** gap slots are **assumed completed on `S`** for that plan run only (no persisted completion, no change to **`catch_up_count`**). When those days become wall-clock past, normal reconcile applies. |
+| **H_start > today** | **Gap** = slots with **`today ≤ S < H_start`**. Assumed completed **silently** for that plan run (no persisted completion, **not shown** in plan UI). **Wall-clock past** obligations (backlog + last past current) still appear. When gap days become past, normal reconcile applies. |
 
 **Wall-clock past** (**`S < today`**) is **not** the gap: it is stored as completions + **`catch_up_count`** / **`last_missed_scheduled_at`** / **`last_reconciled_date`** only — see [scheduling-model.md](./scheduling-model.md) §3.3, §8.
 

@@ -1,4 +1,4 @@
-# Scheduling model — specification (v0.5.3)
+# Scheduling model — specification (v0.5.4)
 
 Readable formulas only. Defines **when instances exist** and their **scheduled** times. Day assignment for workload is [pain-model.md](./pain-model.md) (**planning**).
 
@@ -94,17 +94,30 @@ Backlog is stored compactly:
 | **Horizon gap** | **`today ≤ S < H_start`** when **`H_start > today`** | **No** — virtual + ephemeral assumptions (section 8) | **No** — those days have not lapsed in wall-clock time |
 | **Horizon body** | **`H_start ≤ S ≤ H_end`** | Virtual only (section 7) | No |
 
+**Missed vs current (wall-clock past)**
+
+A grid slot **`S`** with **`S < today`** is **missed** only when a **newer** grid slot **`S′`** exists with **`S < S′ < today`** (the series has advanced past **`S`** without completion). Otherwise **`S`** is still the **current** past obligation — **not yet missed** — even though **`S < today`**.
+
+| Role | Definition |
+|------|------------|
+| **Missed** (backlog) | **`S < today`** and ∃ grid slot **`S′`** with **`S < S′ < today`** |
+| **Last past current** | Latest grid slot **`L`** with **`L < today`** that is **not** missed — kept for planning (section 7) |
+
 **On read** (`catch_up = true`) — **incremental** reconcile:
 
 ```
 watermark = last_reconciled_date
 for each grid slot S where watermark < S < today:
-    catch_up_count += 1
-    last_missed_scheduled_at = S   // keep the latest S
+    let P = immediate previous grid slot before S
+    if P < today:
+        catch_up_count += 1
+        last_missed_scheduled_at = P
 last_reconciled_date = today
 ```
 
-- Only slots that **newly entered wall-clock past** since the last reconcile are counted. No full grid rescan from epoch; **completions are not matched per slot** on read.
+- A slot **`S`** newly entering wall-clock past can **miss** its predecessor **`P`**, not **`S`** itself.
+- Example: daily task, **today = Wed** — **Mon** missed (**Tue** exists), **Tue** is **last past current** (not missed until **Thu**), **`catch_up_count = 1`**, **`last_missed = Mon`**.
+- Only slots that **newly entered wall-clock past** since the last reconcile are scanned. No full grid rescan from epoch; **completions are not matched per slot** on read.
 - After a long idle period, one reconcile walks **`(last_reconciled_date, today)`** in a single pass.
 - **On task create:** set **`last_reconciled_date = today`** (do not backfill misses before the task existed).
 
@@ -125,10 +138,10 @@ if catch_up_count == 0:
 
 - The **grid** comes from the task’s interval rules (section 5.1 / 5.1.1 — not “calendar days” unless **`every_n_days`** with **`n = 1`**).
 - Example: **every 3rd Tuesday of the month** — three missed months → `catch_up_count = 3`, `last_missed` = date of the **third** (most recent) missed Tuesday.
-- Example: **every 1 day** (15 items) — one increment per newly lapsed daily slot.
+- Example: **every 1 day** (15 items) — predecessor becomes missed when the next daily slot enters wall-clock past.
 - Example: **every 1.333 days** — epoch-anchored grid skips ~**1/4** of days long-term; missed **grid slots** increment catch-up, not every blank calendar day.
 
-**Planning / horizon:** expand backlog into **`catch_up_count` virtual instances**, each with **`scheduled_at = last_missed_scheduled_at`** (same `s` for pain/planner). Do not invent dates for earlier misses.
+**Planning / horizon:** expand backlog into **`catch_up_count` virtual instances**, each with **`scheduled_at = last_missed_scheduled_at`**. Also include the **last past current** obligation (if any) as a schedulable instance — even when **`catch_up_count = 0`**. Do not invent dates for earlier misses.
 
 **UI:** may show e.g. “3× (last due Wed)” instead of three separate historical dates.
 
@@ -304,6 +317,10 @@ for each task:
             result += VirtualInstance(last_missed_scheduled_at)
             mark overdue per section 9.2 (reference = H_start)
 
+    if last past current L exists (section 3.3):
+        result += VirtualInstance(L)                // not missed; for planning
+        mark overdue per section 9.2 (reference = H_start)
+
     else if open instance (catch_up no / external):
         result += persisted open
         mark overdue per section 9.2 (reference = H_start)
@@ -311,7 +328,7 @@ for each task:
     // Carry-in (section 7.1): open obligations with scheduled_at < H_start whose grace
     // still covers H_start are included above; overdue = false (section 9.2)
 
-    apply horizon assumptions for (now, H_start)  // section 8
+    apply horizon gap assumptions (section 8)     // silent; no rows emitted
 
     virtual = next_scheduled
     while virtual in [H_start, H_end] and before end_date:
@@ -359,14 +376,17 @@ When **`H_start > today`** (plan starts on a **future calendar day**):
 
 **Gap** = grid slots **`S`** with **`today ≤ S < H_start`**. These days are still **wall-clock present or future** — they are **not** wall-clock past and **do not** affect **`catch_up_count`** or **`last_reconciled_date`**.
 
-For each slot **`S`** in the gap:
+**Gap slots are not shown.** They are assumed completed **silently** for the plan run (no persisted completion, no horizon / UI row). The user sees obligations from **wall-clock past** (backlog + **last past current**, section 3.3) and from **`[H_start, H_end]`** only.
 
-| Condition | For this plan run |
-|-----------|-------------------|
-| **`S`** is **not yet due** at **`today`** (calendar day **`S`** has not ended — typically **`S ≥ today`**) | Emit as **virtual** if needed; treat as **assumed completed** on **`S`** (no persisted completion, no backlog change) |
-| **`S`** is **due** at **`today`** (`S < today` cannot occur in the gap; use when evaluating carry-in at **`H_start`**) | Remains **open / overdue** in horizon output |
+```
+for each grid slot S in gap:
+    treat as completed on S for scheduleHorizon / planning input only
+    do not emit an instance row (not in plan UI)
+```
 
-**Ephemeral only:** assumptions apply to **`scheduleHorizon` / planning input** for that request. They **do not** write completion rows, **do not** move **`last_reconciled_date`**, and **do not** persistently change **`catch_up_count`**. When **`S`** later becomes wall-clock past, reconcile (section 3.3) applies normally.
+**Wall-clock past at plan time:** **`last past current`** and backlog from section 3.3 **are** included in horizon output and planning — they are real obligations, not assumptions.
+
+**Ephemeral only:** gap assumptions **do not** write completion rows, **do not** move **`last_reconciled_date`**, and **do not** persistently change **`catch_up_count`**. When **`S`** later becomes wall-clock past, reconcile (section 3.3) applies normally.
 
 When **`H_start = today`**: use actual DB state only; no gap assumptions.
 
@@ -414,7 +434,7 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 
 ### 9.3 Catch-up count vs overdue
 
-**On-read** catch-up increment (section 3.3) counts grid slots with **`S < today`** newly since **`last_reconciled_date`** — it does **not** wait for grace to end. A slot may appear in **`catch_up_count`** while **`overdue(H_start) = false`** when grace still covers **`H_start`**. The **`overdue`** flag on horizon output is what planning and the UI use. **Horizon gap** slots (**`≥ today`**) are excluded from catch-up increment.
+**On-read** catch-up increment (section 3.3) marks a slot **missed** only when a newer grid slot exists before **`today`** — the **last past current** slot may still have **`S < today`** without being in **`catch_up_count`**. Increment does **not** wait for grace to end. **Horizon gap** slots are excluded from catch-up increment and from UI (section 8).
 
 ---
 
@@ -494,6 +514,7 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 
 | Version | Notes |
 |---------|--------|
+| 0.5.4 | **Missed** only when superseded before **`today`**; **last past current** for planning; gap assume-done **not shown** |
 | 0.5.3 | Incremental catch-up via **`last_reconciled_date`**; wall-clock past vs horizon gap; ephemeral §8 assumptions |
 | 0.5.2 | **`n >= 1`** required; **`n < 1`** rejected; ±% clamps to **`1`** |
 | 0.5.1 | ~~**`n < 1`** valid~~ (superseded by 0.5.2) |

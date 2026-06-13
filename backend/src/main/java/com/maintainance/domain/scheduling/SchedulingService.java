@@ -44,8 +44,8 @@ public class SchedulingService {
     }
 
     /**
-     * Grid slots in {@code [today, H_start)} treated as assumed complete for one horizon projection.
-     * Ephemeral only — does not affect persisted backlog fields.
+     * Gap slots {@code [today, H_start)} assumed complete for one horizon projection.
+     * Ephemeral only — never emitted in scheduleHorizon output (scheduling-model §8).
      */
     public Set<LocalDate> horizonAssumedCompletedDates(TaskState task, LocalDate today, LocalDate horizonStart) {
         if (!horizonStart.isAfter(today) || task.epochStart() == null || task.rules().isExternalDue()) {
@@ -91,7 +91,7 @@ public class SchedulingService {
     }
 
     private TaskState reconcileCatchUpNo(TaskState task, LocalDate today) {
-        LocalDate obligationDate = obligationScheduledDate(task, today);
+        LocalDate obligationDate = lastPastCurrentObligation(task, today);
         if (obligationDate == null) {
             return task;
         }
@@ -101,6 +101,8 @@ public class SchedulingService {
         OpenInstance open = task.openInstance();
         if (open == null) {
             open = new OpenInstance(UUID.randomUUID(), task.id(), obligationDate, null);
+        } else if (!open.scheduledAt().equals(obligationDate)) {
+            open = new OpenInstance(open.id(), task.id(), obligationDate, open.snoozeUntil());
         }
         return task.withOpenInstance(open);
     }
@@ -114,8 +116,11 @@ public class SchedulingService {
         if (epoch != null && watermark.isBefore(today)) {
             for (LocalDate slot : IntervalGrid.gridSlotsThrough(epoch, task.rules(), today.minusDays(1))) {
                 if (slot.isAfter(watermark) && slot.isBefore(today)) {
-                    count++;
-                    lastMissed = slot;
+                    LocalDate predecessor = IntervalGrid.previousGridSlotBefore(epoch, task.rules(), slot);
+                    if (predecessor != null && predecessor.isBefore(today)) {
+                        count++;
+                        lastMissed = predecessor;
+                    }
                 }
             }
         }
@@ -130,23 +135,11 @@ public class SchedulingService {
         );
     }
 
-    private LocalDate obligationScheduledDate(TaskState task, LocalDate today) {
+    private LocalDate lastPastCurrentObligation(TaskState task, LocalDate today) {
         if (task.openInstance() != null) {
             return task.openInstance().scheduledAt();
         }
-        if (task.nextScheduled() != null && today.isAfter(task.nextScheduled())) {
-            return task.nextScheduled();
-        }
-        LocalDate epoch = task.epochStart();
-        if (epoch == null) {
-            return null;
-        }
-        for (LocalDate slot : IntervalGrid.gridSlotsThrough(epoch, task.rules(), today.minusDays(1))) {
-            if (slot.isBefore(today)) {
-                return slot;
-            }
-        }
-        return null;
+        return IntervalGrid.lastPastCurrentObligation(task.epochStart(), task.rules(), today);
     }
 
     public TaskState ensureNextScheduled(TaskState task, LocalDate today) {
@@ -195,7 +188,6 @@ public class SchedulingService {
     ) {
         List<SchedulableInstance> result = new ArrayList<>();
         TaskRules rules = task.rules();
-        Set<LocalDate> assumed = assumedCompletedDates != null ? assumedCompletedDates : Set.of();
 
         if (rules.catchUp() && task.catchUpCount() > 0 && task.lastMissedScheduledAt() != null) {
             LocalDate snooze = task.openInstance() != null ? task.openInstance().snoozeUntil() : null;
@@ -207,6 +199,16 @@ public class SchedulingService {
             OpenInstance open = task.openInstance();
             result.add(buildInstance(task, "open:" + open.id(), open.scheduledAt(), open.id(),
                     false, false, horizonStart, open.snoozeUntil()));
+        }
+
+        if (!rules.isExternalDue() && task.epochStart() != null) {
+            LocalDate lastPastCurrent = IntervalGrid.lastPastCurrentObligation(
+                    task.epochStart(), rules, today);
+            if (lastPastCurrent != null && shouldIncludeLastPastCurrent(task, lastPastCurrent)) {
+                LocalDate snooze = task.openInstance() != null ? task.openInstance().snoozeUntil() : null;
+                result.add(buildInstance(task, "current:" + lastPastCurrent, lastPastCurrent, null,
+                        true, false, horizonStart, snooze));
+            }
         }
 
         if (rules.isExternalDue() || task.epochStart() == null) {
@@ -224,7 +226,7 @@ public class SchedulingService {
         LocalDate previousScheduled = cursor;
         int forwardIndex = 0;
         while (cursor != null && !cursor.isAfter(horizonEnd)) {
-            if (!cursor.isBefore(horizonStart) && !assumed.contains(cursor)) {
+            if (!cursor.isBefore(horizonStart)) {
                 boolean duplicateOpen = task.openInstance() != null
                         && !rules.catchUp()
                         && task.openInstance().scheduledAt().equals(cursor);
@@ -247,6 +249,16 @@ public class SchedulingService {
         }
 
         return result;
+    }
+
+    private boolean shouldIncludeLastPastCurrent(TaskState task, LocalDate lastPastCurrent) {
+        if (task.lastMissedScheduledAt() != null && task.lastMissedScheduledAt().equals(lastPastCurrent)) {
+            return false;
+        }
+        if (task.openInstance() != null && task.openInstance().scheduledAt().equals(lastPastCurrent)) {
+            return false;
+        }
+        return true;
     }
 
     private SchedulableInstance buildInstance(

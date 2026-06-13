@@ -19,40 +19,40 @@ class SchedulingServiceTest {
             new SchedulingService((scriptPath, scriptArgs) -> false);
 
     @Test
-    void catchUpIncrementsOnlySinceLastReconciledDate() {
+    void catchUpIncrementsWhenPredecessorSuperseded() {
         LocalDate epoch = LocalDate.of(2026, 5, 1);
         LocalDate today = LocalDate.of(2026, 5, 5);
         LocalDate watermark = LocalDate.of(2026, 4, 30);
         TaskState task = dailyCatchUpTask(epoch, epoch, 0, null, watermark);
 
         TaskState afterFirst = schedulingService.reconcileOnRead(task, today);
-        assertEquals(4, afterFirst.catchUpCount());
-        assertEquals(LocalDate.of(2026, 5, 4), afterFirst.lastMissedScheduledAt());
+        assertEquals(3, afterFirst.catchUpCount());
+        assertEquals(LocalDate.of(2026, 5, 3), afterFirst.lastMissedScheduledAt());
         assertEquals(today, afterFirst.lastReconciledDate());
 
         TaskState afterSecond = schedulingService.reconcileOnRead(afterFirst, today);
-        assertEquals(4, afterSecond.catchUpCount());
+        assertEquals(3, afterSecond.catchUpCount());
     }
 
     @Test
     void markDoneDecrementSurvivesReconcileSameDay() {
         LocalDate epoch = LocalDate.of(2026, 5, 1);
         LocalDate today = LocalDate.of(2026, 5, 5);
-        TaskState task = dailyCatchUpTask(epoch, epoch, 4, LocalDate.of(2026, 5, 4), today);
+        TaskState task = dailyCatchUpTask(epoch, epoch, 3, LocalDate.of(2026, 5, 3), today);
 
         TaskState decremented = task.withSchedulingFields(
-                epoch, LocalDate.of(2026, 5, 5), LocalDate.of(2026, 5, 4), 3, today, null);
+                epoch, LocalDate.of(2026, 5, 5), LocalDate.of(2026, 5, 3), 2, today, null);
         TaskState afterReconcile = schedulingService.reconcileOnRead(decremented, today);
 
-        assertEquals(3, afterReconcile.catchUpCount());
-        assertEquals(LocalDate.of(2026, 5, 4), afterReconcile.lastMissedScheduledAt());
+        assertEquals(2, afterReconcile.catchUpCount());
+        assertEquals(LocalDate.of(2026, 5, 3), afterReconcile.lastMissedScheduledAt());
     }
 
     @Test
     void clearingBacklogClearsLastMissed() {
         LocalDate epoch = LocalDate.of(2026, 5, 1);
         LocalDate today = LocalDate.of(2026, 5, 5);
-        TaskState task = dailyCatchUpTask(epoch, epoch, 1, LocalDate.of(2026, 5, 4), today);
+        TaskState task = dailyCatchUpTask(epoch, epoch, 1, LocalDate.of(2026, 5, 3), today);
 
         TaskState cleared = task.withSchedulingFields(
                 epoch, LocalDate.of(2026, 5, 5), null, 0, today, null);
@@ -60,6 +60,18 @@ class SchedulingServiceTest {
 
         assertEquals(0, afterReconcile.catchUpCount());
         assertNull(afterReconcile.lastMissedScheduledAt());
+    }
+
+    @Test
+    void wednesdayLeavesTuesdayAsLastPastCurrentWithOneMissed() {
+        LocalDate epoch = LocalDate.of(2026, 5, 1);
+        LocalDate today = LocalDate.of(2026, 5, 3);
+        TaskState task = dailyCatchUpTask(epoch, epoch, 0, null, LocalDate.of(2026, 4, 30));
+
+        TaskState reconciled = schedulingService.reconcileOnRead(task, today);
+        assertEquals(1, reconciled.catchUpCount());
+        assertEquals(LocalDate.of(2026, 5, 1), reconciled.lastMissedScheduledAt());
+        assertEquals(LocalDate.of(2026, 5, 2), IntervalGrid.lastPastCurrentObligation(epoch, task.rules(), today));
     }
 
     @Test
@@ -76,6 +88,22 @@ class SchedulingServiceTest {
         assertEquals(true, assumed.contains(LocalDate.of(2026, 5, 31)));
         assertEquals(false, assumed.contains(LocalDate.of(2026, 5, 26)));
         assertEquals(false, assumed.contains(LocalDate.of(2026, 6, 1)));
+    }
+
+    @Test
+    void scheduleHorizonIncludesLastPastCurrent() {
+        LocalDate epoch = LocalDate.of(2026, 5, 1);
+        LocalDate today = LocalDate.of(2026, 5, 3);
+        TaskState task = dailyCatchUpTask(epoch, LocalDate.of(2026, 5, 3), 1,
+                LocalDate.of(2026, 5, 1), today);
+
+        var instances = schedulingService.scheduleHorizon(
+                task, today, today.plusDays(7), today, Set.of());
+
+        long currentCount = instances.stream()
+                .filter(i -> i.scheduledAt().equals(LocalDate.of(2026, 5, 2)))
+                .count();
+        assertEquals(1, currentCount);
     }
 
     private static TaskState dailyCatchUpTask(
