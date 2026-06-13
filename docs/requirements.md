@@ -1,4 +1,4 @@
-# Personal maintenance planner — Requirements v0.3.4
+# Personal maintenance planner — Requirements v0.3.5
 
 Status: **Draft for sign-off**. Planning: [planning-algorithm.md](./planning-algorithm.md). Tech stack: [tech-stack.md](./tech-stack.md).
 
@@ -65,7 +65,7 @@ Let **now** = current time, **H_start** = horizon start.
 
 ### 4.1 Recurrence and anchors
 
-- **Interval expression** (e.g. every *n* days/weeks/months; nth weekday of month; etc.).
+- **Interval expression** (e.g. every *n* days/weeks/months/years with **fractional *n***; nth weekday of month; etc.). See [scheduling-model.md](./scheduling-model.md) §5.1.1.
 - **Epoch:** first **scheduled** date/time; recalculate epoch when interval changes.
 - **Anchor mode:**
   - **Epoch / first scheduled:** series follows calendar from epoch (completion on another day does not shift the series).
@@ -100,7 +100,7 @@ Let **now** = current time, **H_start** = horizon start.
 ## 5. Interval adjustment (±%)
 
 - Offered **only** when marking an instance **done**.
-- Only when interval type supports proportional change (e.g. every *n* days/months/years).
+- Only when interval type supports proportional change (**`every_n_*`** with numeric **`n`**, including fractional).
 - Updates interval, starts new **epoch**, recomputes **next scheduled** immediately.
 - Does not persist a chain of future instances beyond open-instance rules.
 
@@ -176,6 +176,7 @@ Optional “minimum achievable pain” analysis for comparison.
 
 | Version | Changes |
 |---------|---------|
+| v0.3.5 | Fractional interval **`n`** on every N days/weeks/months/years. |
 | v0.3.4 | Plan API: **`timingPain`** on every instance row. |
 | v0.3.3 | Extended planning horizon (2×) with truncate to user window. |
 | v0.3.2 | Scheduling: in-grace carry-in before horizon; grace-aware overdue. |

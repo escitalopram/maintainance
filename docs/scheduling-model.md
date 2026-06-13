@@ -1,4 +1,4 @@
-# Scheduling model — specification (v0.4)
+# Scheduling model — specification (v0.5)
 
 Readable formulas only. Defines **when instances exist** and their **scheduled** times. Day assignment for workload is [pain-model.md](./pain-model.md) (**planning**).
 
@@ -91,9 +91,10 @@ walk each scheduled slot S on this task's interval grid from epoch / last comple
         last_missed_scheduled_at = S   (keep the latest S)
 ```
 
-- The **grid** comes from the task’s interval rules (not “calendar days” unless the interval is daily).
+- The **grid** comes from the task’s interval rules (section 5.1 / 5.1.1 — not “calendar days” unless **`every_n_days`** with **`n = 1`**).
 - Example: **every 3rd Tuesday of the month** — three missed months → `catch_up_count = 3`, `last_missed` = date of the **third** (most recent) missed Tuesday.
 - Example: **every 1 day** (15 items) — same logic; one increment per missed daily slot.
+- Example: **every 1.333 days** — epoch-anchored grid skips ~**1/4** of days long-term; missed **grid slots** increment catch-up, not every blank calendar day.
 
 **Mark done:**
 
@@ -127,19 +128,57 @@ Composable per task (rules editor, no presets).
 
 Stored as structured JSON (validated in Java), not a free-form DSL string.
 
-| Type | Advance |
-|------|---------|
-| `every_n_days` | + N calendar days |
-| `every_n_weeks` | + N weeks, then weekday rules |
-| `every_n_months` | + N calendar months |
+| Type | Parameter **`n`** | Unit |
+|------|-------------------|------|
+| `every_n_days` | positive **float** (§5.1.1) | calendar days |
+| `every_n_weeks` | positive **float** | weeks (× 7 days in grid) |
+| `every_n_months` | positive **float** | mean month (× 365.2425/12 days in grid) |
+| `every_n_years` | positive **float** | mean year (× 365.2425 days in grid); may follow days/weeks/months in implementation order |
 
-**v1 later sketch — `every_n_years` (not implemented first):**
+Example JSON: `{ "type": "every_n_days", "n": 1.333 }`.
 
-| Type | Advance |
-|------|---------|
-| `every_n_years` | + N years; same allowed-weekday / seasonal / min-gap pipeline as months |
+**nth weekday of month** (e.g. 3rd Tuesday): separate interval type; **integer** only (no fractional **n**). Supported for grid walk / catch-up; may follow **days/weeks/months/years** in implementation order.
 
-**nth weekday of month** (e.g. 3rd Tuesday): supported in the interval model for grid walk / catch-up; may follow **days/weeks/months** in implementation order.
+### 5.1.1 Fractional **`n`** (every N days/weeks/months/years)
+
+**`n`** may be a **floating-point** value (e.g. **1.333**, **1.5**, **7.25**). Integer **`n`** behaves as before (**`n = 1`** on **`every_n_days`** = every calendar day).
+
+**Use case:** **`every_n_days`** with **`n = 1.333`** (≈ **4/3**) is “mostly daily” but the grid **skips** roughly **1/4** of calendar days in the long run. With **`n = 1.5`**, long-run skip rate is about **1/3** (**`1 − 1/n`** calendar days on a dense day grid when **`n > 1`**).
+
+Scheduling still uses **calendar dates** (section 2.2). Fractional **`n`** defines an **epoch-anchored slot grid**, not a separate “skip random days” rule.
+
+**Unit length (days)** for grid math:
+
+```
+unitDays(every_n_days)   = 1
+unitDays(every_n_weeks)  = 7
+unitDays(every_n_months) = 365.2425 / 12
+unitDays(every_n_years)  = 365.2425
+
+intervalDays = n * unitDays(type)
+```
+
+**Slot dates** from **`epoch_start`** (slot index **`k = 0, 1, 2, …`**):
+
+```
+E = dayIndex(epoch_start)    // 0-based local calendar index
+
+slotDayIndex(k) = E + k * intervalDays
+gridSlotDate(k) = calendarDate(floor(slotDayIndex(k) + 1e-9))
+```
+
+- **`gridSlotDate(0) = epoch_start`** (after weekday / seasonal snap applied when the epoch was set).
+- **`nextScheduled`** (epoch anchor): smallest **`gridSlotDate(k) >= after_date`** after allowed-weekday, seasonal, and min-gap rules (section 6).
+- **Catch-up walk** (section 3.3): iterate **`k`** while **`gridSlotDate(k) <= today`**; each distinct slot date is one obligation on the grid.
+- **At most one instance per calendar day** from the interval grid: if **`gridSlotDate(k) == gridSlotDate(k-1)`**, treat as a single slot (dedupe consecutive **`k`**).
+
+**Last-completion anchor:** after mark done, next candidate = **`completed_date + intervalDays`** (as calendar-day add), then weekday / seasonal / min-gap — same as integer intervals; the slot grid is not re-anchored to completion unless the user changes epoch / interval.
+
+**Interval ±%** (mark done): multiply stored **`n`** by the factor (e.g. **1.333 → 1.466** at +10%).
+
+**Validation:** **`n > 0`**. UI may show “≈ every *n* days” and long-run density **≈ `1/n`** slots per calendar day for **`every_n_days`**.
+
+**Note:** **`n < 1`** on a **day** grid (e.g. **0.5**) targets more than one slot per day in continuous time, but **calendar-day scheduling** collapses same-day slots — prefer **`n >= 1`** for skip-day patterns.
 
 ### 5.2 Epoch
 
@@ -364,9 +403,15 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 
 ### 15 items (every day, catch-up yes)
 
-- Grid: every calendar day.
+- Grid: **`every_n_days`**, **`n = 1`**.
 - On read: `catch_up_count` = missed daily slots; `last_missed` = latest missed day.
 - Mark done: **`count -= 1`**.
+
+### Sparse daily (every 1.333 days, catch-up yes) — illustration
+
+- Grid: **`every_n_days`**, **`n = 1.333`** (≈ **4/3**); slot dates from **`epoch_start`** via §5.1.1.
+- Long run: ~**3** scheduled slots per **4** calendar days (~**25%** of days have no slot).
+- Catch-up counts **missed grid slots**, not “off” days with no slot.
 
 ### 3rd Tuesday monthly (catch-up yes) — illustration
 
@@ -406,6 +451,7 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 | 12 | Catch-up no | ≤ 1 open; safety cancel on mark done |
 | 13 | Epoch on create | Default next slot from today (editable) |
 | 14 | Grace / overdue | Overdue when grace ended at reference day; carry-in before **`H_start`** in grace **`overdue = false`** |
+| 15 | Fractional **`n`** | Float **`n`** on **`every_n_*`**; epoch slot grid (§5.1.1) |
 
 ---
 
@@ -423,6 +469,7 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 
 | Version | Notes |
 |---------|--------|
+| 0.5 | Fractional **`n`** on **`every_n_days/weeks/months/years`**; epoch slot grid (§5.1.1) |
 | 0.4 | Grace-aware **`overdue`**; carry-in before **`H_start`** in grace (not overdue); aligns with **`p_beyond`** slip |
 | 0.3 | Catch-up: last missed + count; planner uses minimal **`F_i`** (horizon + snooze only) |
 | 0.2 | TBD review locked; ephemeral horizon; snooze; on-read opens; due script contract |
