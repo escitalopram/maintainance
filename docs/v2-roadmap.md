@@ -23,8 +23,8 @@ Status: **active development branch** (spec + implementation).
 |------|----------------|----------|
 | **nth weekday of month** (e.g. 3rd Tuesday) | scheduling-model §5.1 | Not implemented |
 | **`every_n_years`** | scheduling-model §5.1 | Not implemented |
-| **Horizon assumptions** (`H_start > now`) | scheduling-model §8, requirements §3.3 | Reconcile ignores assumed completions in gap |
-| **Catch-up walk vs completions** | scheduling-model §3.3 | Counts missed grid slots without skipping completed dates |
+| **Horizon assumptions** (`H_start > today`) | scheduling-model §8, requirements §3.3 | Gap assumptions ephemeral; reconcile uses wall-clock past only |
+| **Catch-up increment** | scheduling-model §3.3 | Incremental via **`last_reconciled_date`**; mark done decrements |
 | **Seasonal window** (full) | scheduling-model §5.5 | Partial / basic only |
 | **Allowed weekdays** in UI | requirements §4.1 | Backend snap exists; no editor control |
 
@@ -64,6 +64,7 @@ Track doc edits here before or alongside code:
 
 - [ ] Freeze v2 requirements sign-off (merge open doc PRs into `v2` baseline)
 - [ ] Schema for **same-day ordering edges** (planning-algorithm §5.2 TBD)
+- [x] Incremental catch-up + **`last_reconciled_date`** (scheduling-model §3.3)
 - [ ] Clarify **LAST_COMPLETION** + fractional grid interaction after mark done
 - [ ] Frontend: week view as **day-only calendar** (may replace react-big-calendar week mode or keep CSS-only hide)
 
@@ -71,7 +72,7 @@ Track doc edits here before or alongside code:
 
 ## Suggested implementation order
 
-1. Horizon assumptions + completion-aware catch-up (scheduling correctness)
+1. ~~Horizon assumptions + incremental catch-up~~ (scheduling-model v0.5.3)
 2. Same-day ordering (schema → planner → UI)
 3. nth weekday + `every_n_years`
 4. Local search pass

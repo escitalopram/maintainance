@@ -52,12 +52,14 @@ Assigns **planned** dates/times within the horizon using flexibility, importance
 
 ### 3.3 Horizon assumptions
 
-Let **now** = current time, **H_start** = horizon start.
+Let **today** = current calendar day (wall clock), **H_start** = horizon start.
 
 | Case | Behavior |
 |------|----------|
-| **H_start = now** | No assumed completions. Use actual state. |
-| **H_start > now** | Per task, in **(now, H_start)**: if **≥ 1** scheduled instance exists that is **not yet due**, assume it is completed **on its scheduled date** at **H_start**. Otherwise, instances that are **due** by **H_start** remain **due**. |
+| **H_start = today** | No assumed completions. Use actual DB state. |
+| **H_start > today** | **Gap** = slots with **`today ≤ S < H_start`**. Virtual instances may be projected in the gap; **not yet due** gap slots are **assumed completed on `S`** for that plan run only (no persisted completion, no change to **`catch_up_count`**). When those days become wall-clock past, normal reconcile applies. |
+
+**Wall-clock past** (**`S < today`**) is **not** the gap: it is stored as completions + **`catch_up_count`** / **`last_missed_scheduled_at`** / **`last_reconciled_date`** only — see [scheduling-model.md](./scheduling-model.md) §3.3, §8.
 
 ---
 

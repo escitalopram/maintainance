@@ -13,11 +13,12 @@ public record TaskState(
         LocalDate nextScheduled,
         LocalDate lastMissedScheduledAt,
         int catchUpCount,
+        LocalDate lastReconciledDate,
         OpenInstance openInstance
 ) {
     public TaskState withOpenInstance(OpenInstance open) {
         return new TaskState(id, name, description, archived, rules, epochStart, nextScheduled,
-                lastMissedScheduledAt, catchUpCount, open);
+                lastMissedScheduledAt, catchUpCount, lastReconciledDate, open);
     }
 
     public TaskState withSchedulingFields(
@@ -25,9 +26,10 @@ public record TaskState(
             LocalDate nextScheduled,
             LocalDate lastMissedScheduledAt,
             int catchUpCount,
+            LocalDate lastReconciledDate,
             OpenInstance openInstance
     ) {
         return new TaskState(id, name, description, archived, rules, epochStart, nextScheduled,
-                lastMissedScheduledAt, catchUpCount, openInstance);
+                lastMissedScheduledAt, catchUpCount, lastReconciledDate, openInstance);
     }
 }
