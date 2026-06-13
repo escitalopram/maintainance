@@ -176,6 +176,7 @@ Optional “minimum achievable pain” analysis for comparison.
 
 | Version | Changes |
 |---------|---------|
+| v0.3.6 | Fractional **`n`**: **`n < 1`** is valid input. |
 | v0.3.5 | Fractional interval **`n`** on every N days/weeks/months/years. |
 | v0.3.4 | Plan API: **`timingPain`** on every instance row. |
 | v0.3.3 | Extended planning horizon (2×) with truncate to user window. |

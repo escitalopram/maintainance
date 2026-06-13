@@ -143,7 +143,9 @@ Example JSON: `{ "type": "every_n_days", "n": 1.333 }`.
 
 **`n`** may be a **floating-point** value (e.g. **1.333**, **1.5**, **7.25**). Integer **`n`** behaves as before (**`n = 1`** on **`every_n_days`** = every calendar day).
 
-**Use case:** **`every_n_days`** with **`n = 1.333`** (≈ **4/3**) is “mostly daily” but the grid **skips** roughly **1/4** of calendar days in the long run. With **`n = 1.5`**, long-run skip rate is about **1/3** (**`1 − 1/n`** calendar days on a dense day grid when **`n > 1`**).
+**Use case (n > 1):** **`every_n_days`** with **`n = 1.333`** (≈ **4/3**) is “mostly daily” but the grid **skips** roughly **1/4** of calendar days in the long run. With **`n = 1.5`**, long-run skip rate is about **1/3** (**`1 − 1/n`** calendar days on a dense day grid).
+
+**Use case (n < 1):** e.g. **`every_n_weeks`**, **`n = 0.5`** → **`intervalDays = 3.5`** (twice per week on average). **`n < 1`** is **valid**; same grid formula applies.
 
 Scheduling still uses **calendar dates** (section 2.2). Fractional **`n`** defines an **epoch-anchored slot grid**, not a separate “skip random days” rule.
 
