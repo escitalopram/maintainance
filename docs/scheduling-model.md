@@ -441,7 +441,7 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 | 2 | Snooze | Keep `scheduled_at`; `snooze_until` |
 | 3 | Date/time | Date + `preferred_time` label |
 | 4 | Timezone | System default |
-| 5 | Intervals | days/weeks/months v1; years sketched |
+| 5 | Intervals | days/weeks/months/years; fractional **`n`** on **`every_n_*`** (§5.1.1) |
 | 6 | Weekdays | Nearest allowed |
 | 7 | Min gap | Push forward; catch-up opens exempt |
 | 8 | due() | stdout; warn on error; missing line → false |
