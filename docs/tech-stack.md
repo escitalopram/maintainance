@@ -109,7 +109,7 @@ dependencies {
 |--------|------|---------|
 | GET/POST/PUT/DELETE | `/api/tasks` | Task CRUD |
 | GET | `/api/tasks/{id}/completions` | History |
-| POST | `/api/plan` | Body: `{ horizonStart, horizonEnd }` → scheduled + planned instances |
+| POST | `/api/plan` | Body: `{ horizonStart, horizonEnd }` → **PlanResult**; each **`items[]`** row includes **`timingPain`** ([planning-algorithm.md](./planning-algorithm.md) §10.1) |
 | POST | `/api/instances/{id}/complete` | Mark done; optional interval delta % |
 | POST | `/api/instances/{id}/snooze` | Snooze until |
 | GET/PUT | `/api/settings` | Global planner settings |
