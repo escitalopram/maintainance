@@ -37,3 +37,30 @@ body {
 .rbc-off-range-bg {
   background: #f1f5f9;
 }
+
+/* Week view: day-level planning only — hide hourly time grid */
+.plan-calendar .rbc-time-view .rbc-time-content {
+  display: none;
+}
+
+.plan-calendar .rbc-time-view .rbc-time-header-gutter {
+  display: none;
+}
+
+.plan-calendar .rbc-time-view .rbc-time-header-content > .rbc-row.rbc-time-header-cell {
+  min-height: 2.5rem;
+}
+
+.plan-calendar .rbc-time-view .rbc-allday-cell {
+  min-height: 8rem;
+}
+
+.plan-calendar .rbc-time-view {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.plan-calendar .rbc-calendar {
+  min-height: auto;
+}

@@ -140,6 +140,7 @@ export function PlanView() {
       {error && <p className="text-sm text-red-600">{(error as Error).message}</p>}
 
       <div className="grid gap-4 xl:grid-cols-[1fr_280px]">
+        <div className="plan-calendar">
         <Calendar
           localizer={localizer}
           events={events}
@@ -150,6 +151,7 @@ export function PlanView() {
           views={['month', 'week']}
           toolbar
           popup
+          showMultiDayTimes={false}
           dayPropGetter={dayPropGetter}
           onSelectEvent={(event) => setSelected((event as PlanEvent).resource)}
           eventPropGetter={(event) => {
@@ -174,6 +176,7 @@ export function PlanView() {
             },
           }}
         />
+        </div>
 
         <aside className="rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="mb-2 text-sm font-semibold text-slate-700">Unplanned</h3>
