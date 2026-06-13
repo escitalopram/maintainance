@@ -1,4 +1,4 @@
-# Pain model — mathematical specification (v0.4)
+# Pain model — mathematical specification (v0.4.3)
 
 Readable formulas only (no LaTeX). Implements [requirements.md](./requirements.md) §8.
 
@@ -24,22 +24,25 @@ Readable formulas only (no LaTeX). Implements [requirements.md](./requirements.m
 | d_i | Duration in minutes |
 | w_i | Importance weight (default 1, at least 1) |
 | L(day) | Sum of d_i for all instances planned on that day |
-| F_i | Feasible days for instance i (horizon, weekdays, season, snooze) |
+| F_i | Feasible plan days: horizon ∩ snooze (see planning-algorithm); **not** season/weekdays |
 | d0_i | **First feasible day:** earliest day in F_i |
+| p_beyond | Calendar day **after H_end**; timing pain reference for unplanned instances |
 | idx(day) | 0-based index in D (0 = H_start) |
 | c | **catch_up_count** for the task (scheduling-model); 0 if not in backlog |
 
-**Overdue (planning):** instance is open, and the grace window around s_i has **fully ended** before planning starts (typically before H_start). Exact rule can align with “scheduled before horizon and outside grace at H_start”.
+**Overdue (planning):** same as scheduling ([scheduling-model.md](./scheduling-model.md) §9.2): open instance with **`scheduled_at < H_start`**, grace **fully ended** at **`H_start`**. In-grace carry-in before **`H_start`** is **not** overdue — Regime A only.
 
 ---
 
 ## 2. Total pain
 
 ```
-P_total = P_timing + P_daily
+P_total = P_timing + P_daily    // assigned instances only (optimizer)
+
+P_total_reported = P_total + P_timing_unassigned    // UI; see §3.2
 ```
 
-Minimize P_total subject to hard constraints. Do **not** reject plans when P_total > P*.
+Minimize **`P_total`** over assigned days subject to hard constraints. Include **`P_timing_unassigned`** in **`P_total_reported`** for display. Do **not** reject plans when **`P_total_reported > P*`**.
 
 ---
 
@@ -60,7 +63,7 @@ else:
 
 **Regime B** is not a different curve — it is only: **“0 on first feasible day; otherwise use Regime A.”**
 
-**d0_i** is the **first possible** planning day for that instance, not necessarily the first day of the horizon (snooze, allowed weekdays, etc. may push d0_i later).
+**d0_i** is the **first possible** planning day in the horizon (snooze may push it later). Weekday and season rules affect **s** via the scheduler, not **F_i**.
 
 ### 3.1 Final timing pain (with backlog multiplier)
 
@@ -75,6 +78,29 @@ else:
 
 - **Forward** instances (ephemeral slots in the horizon, not backlog) use **M = 1** even on catch-up tasks.
 - **`P_daily`** is unchanged (duration still stacks when several backlog items land on one day).
+
+### 3.2 Unplanned instances — pain on the day after the horizon
+
+When an instance appears on the plan but has no **`planned_at`** (unplanned / unassigned — see planning-algorithm §7.5, §8.2), **use its timing pain for the calendar day immediately after `H_end`**. No separate unassigned penalty.
+
+```
+p_beyond = calendar day immediately after H_end
+
+timing_pain_unassigned(i) = timing_pain(i, p = p_beyond)
+```
+
+- **`p_beyond`** is a **reference date only** — not a valid assignment day
+- Compute with **Regime A** only (**`p_beyond`** ∉ **`F_i`**, never Regime B **`d0`**)
+- Apply backlog **`M(c)`** as for assigned instances
+- Does **not** add to **`P_daily`**
+
+**Reported plan total:**
+
+```
+P_total_reported = P_timing + P_daily + sum_i timing_pain_unassigned(i)
+```
+
+Same timing curve as a “slip to just after the horizon” — scales with **`w`**, grace, bell, and **`M(c)`** without a separate penalty function.
 
 ---
 
@@ -262,28 +288,25 @@ else:
 P_daily = sum over days d in D of rho(L(d))
 ```
 
-**Hard constraint (assignment):** See [planning-algorithm.md](./planning-algorithm.md): v1 planner is **best-effort** — days may exceed **`H_hard`** and are flagged **`over_hard_cap`**. Pain **`rho(L)`** still applies for all **`L`**.
-
-**Hard constraint (legacy wording):** Do not use **`L > H_hard`** to forbid assignment in v1.
+**Assignment:** **`L(d) <= H_hard`** for every day in the **strict** plan. See [planning-algorithm.md](./planning-algorithm.md) §7: exceed only in **overflow** when strict placement of **all** instances is impossible.
 
 | Setting | Role |
 |---------|------|
 | T | Soft minute threshold |
 | P_T | Pain at T |
 | k | Pain per minute above T |
-| H_hard | Hard daily cap (minutes) |
+| H_hard | **Hard** daily cap (minutes) under strict assignment |
 
 ---
 
 ## 8. Hard constraints (planning)
 
 1. `p_i in F_i`
-2. Same-day ordering (hard when same day) — [planning-algorithm.md](./planning-algorithm.md)
-3. Each instance assigned exactly once (best-effort; flag overload days)
+2. **`L(d) <= H_hard`** for all days **d** after strict assignment (overflow excepted — planning-algorithm §7)
+3. Same-day ordering (hard when same day) — [planning-algorithm.md](./planning-algorithm.md)
+4. Each instance assigned exactly once, or overflow / **`unassigned_instances`** warning
 
-**Not constrained by:** `P*`, `P_total`, or **`H_hard`** as assignment forbidder (overload flagged separately).
-
-*(Former item “`L(day) <= H_hard`” moved to planning-algorithm best-effort rule.)*
+**Not constrained by:** `P*` or `P_total`.
 
 ---
 
@@ -348,8 +371,12 @@ catch_up_count = 3, beta = 0.5, backlog_p = 0.6 → M ≈ 1.83. On d0+1, base = 
 
 | Version | Notes |
 |---------|--------|
-| 0.4 | Backlog multiplier M(c) = 1 + beta * (c-1)^backlog_p; backlog_p per task |
-| 0.3.1 | H_hard assignment → planning-algorithm (best-effort + flag) |
-| 0.3 | Single P_timing; overdue = 0 at d0 else Regime A |
+| 0.4.3 | **`overdue`** cross-ref scheduling grace rule |
+| 0.4.2 | Unplanned instances: timing pain on day after **`H_end`** (wording) |
+| 0.4.1 | Unassigned timing pain at **`p_beyond`**; minimal **`F_i`** |
+| 0.4 | Backlog multiplier; **`backlog_p`** per task |
+| 0.3.2 | H_hard strict assignment (planning-algorithm) |
+| 0.3.1 | H_hard cross-ref planning-algorithm |
+| 0.3 | Single P_timing; Regime B at **`d0`** |
 | 0.2 | Grace window; separate P_overdue at d0 |
 | 0.1 | Initial draft |

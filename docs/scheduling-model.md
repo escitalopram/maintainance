@@ -1,4 +1,4 @@
-# Scheduling model — specification (v0.3)
+# Scheduling model — specification (v0.5.2)
 
 Readable formulas only. Defines **when instances exist** and their **scheduled** times. Day assignment for workload is [pain-model.md](./pain-model.md) (**planning**).
 
@@ -13,7 +13,7 @@ Readable formulas only. Defines **when instances exist** and their **scheduled**
 | **Scheduling** | When must this occurrence exist (ideal time)? | **Scheduled** date `s` per instance |
 | **Planning** | Which calendar day should I do it in this horizon? | **Planned** date `p` |
 
-Scheduling runs **before** planning. Planning reads scheduled instances (open backlog + ephemeral horizon projection).
+Scheduling runs **before** planning. Planning reads scheduled instances (open backlog + ephemeral horizon projection). **Season, weekdays, and interval grid** are applied here so the planner only needs horizon + snooze ([planning-algorithm.md](./planning-algorithm.md) §3).
 
 ---
 
@@ -65,7 +65,7 @@ No nightly batch required in v1.
 catch_up = false  =>  count(open instances for task) <= 1
 ```
 
-- On read: if overdue, **reuse** the existing open row or create **one**; do **not** add a new open per missed cycle.
+- On read: if the scheduled day has passed and the obligation is open, **reuse** the existing open row or create **one**; do **not** add a new open per missed cycle.
 - **Mark done:** complete that instance; recompute `next_scheduled`; **cancel any other open** rows for that task (safety — should be none).
 
 ### 3.3 Catch-up yes — last missed + count
@@ -91,9 +91,10 @@ walk each scheduled slot S on this task's interval grid from epoch / last comple
         last_missed_scheduled_at = S   (keep the latest S)
 ```
 
-- The **grid** comes from the task’s interval rules (not “calendar days” unless the interval is daily).
+- The **grid** comes from the task’s interval rules (section 5.1 / 5.1.1 — not “calendar days” unless **`every_n_days`** with **`n = 1`**).
 - Example: **every 3rd Tuesday of the month** — three missed months → `catch_up_count = 3`, `last_missed` = date of the **third** (most recent) missed Tuesday.
 - Example: **every 1 day** (15 items) — same logic; one increment per missed daily slot.
+- Example: **every 1.333 days** — epoch-anchored grid skips ~**1/4** of days long-term; missed **grid slots** increment catch-up, not every blank calendar day.
 
 **Mark done:**
 
@@ -113,8 +114,7 @@ if catch_up_count == 0:
 ## 4. Snooze (locked)
 
 - **`scheduled_at`** (`s`): ideal date from rules — **unchanged** by snooze (used by planning pain / Regime A).
-- **`snooze_until`**: optional date on open instance; planning cannot place before this day.
-- **Feasible days** for planning: `F_i` excludes days before `snooze_until` (see pain-model `d0`).
+- **`snooze_until`**: optional date on open instance; planner **`F_i`** excludes days before this (see planning-algorithm §3).
 
 Scheduling does not move `s` when user snoozes.
 
@@ -128,19 +128,55 @@ Composable per task (rules editor, no presets).
 
 Stored as structured JSON (validated in Java), not a free-form DSL string.
 
-| Type | Advance |
-|------|---------|
-| `every_n_days` | + N calendar days |
-| `every_n_weeks` | + N weeks, then weekday rules |
-| `every_n_months` | + N calendar months |
+| Type | Parameter **`n`** | Unit |
+|------|-------------------|------|
+| `every_n_days` | float **`n >= 1`** (§5.1.1) | calendar days |
+| `every_n_weeks` | float **`n >= 1`** | weeks (× 7 days in grid) |
+| `every_n_months` | float **`n >= 1`** | mean month (× 365.2425/12 days in grid) |
+| `every_n_years` | float **`n >= 1`** | mean year (× 365.2425 days in grid); may follow days/weeks/months in implementation order |
 
-**v1 later sketch — `every_n_years` (not implemented first):**
+Example JSON: `{ "type": "every_n_days", "n": 1.333 }`.
 
-| Type | Advance |
-|------|---------|
-| `every_n_years` | + N years; same allowed-weekday / seasonal / min-gap pipeline as months |
+**nth weekday of month** (e.g. 3rd Tuesday): separate interval type; **integer** only (no fractional **n**). Supported for grid walk / catch-up; may follow **days/weeks/months/years** in implementation order.
 
-**nth weekday of month** (e.g. 3rd Tuesday): supported in the interval model for grid walk / catch-up; may follow **days/weeks/months** in implementation order.
+### 5.1.1 Fractional **`n`** (every N days/weeks/months/years)
+
+**`n`** may be a **floating-point** value **≥ 1** (e.g. **1.333**, **1.5**, **7.25**). Integer **`n`** behaves as before (**`n = 1`** on **`every_n_days`** = every calendar day).
+
+**Use case:** **`every_n_days`** with **`n = 1.333`** (≈ **4/3**) is “mostly daily” but the grid **skips** roughly **1/4** of calendar days in the long run. With **`n = 1.5`**, long-run skip rate is about **1/3** (**`1 − 1/n`** calendar days on a dense day grid when **`n > 1`**). For cadences shorter than one full unit (e.g. twice per week), use a smaller unit type (**`every_n_days`**) or a smaller **`n`** on that unit — not **`n < 1`**.
+
+Scheduling still uses **calendar dates** (section 2.2). Fractional **`n`** defines an **epoch-anchored slot grid**, not a separate “skip random days” rule.
+
+**Unit length (days)** for grid math:
+
+```
+unitDays(every_n_days)   = 1
+unitDays(every_n_weeks)  = 7
+unitDays(every_n_months) = 365.2425 / 12
+unitDays(every_n_years)  = 365.2425
+
+intervalDays = n * unitDays(type)
+```
+
+**Slot dates** from **`epoch_start`** (slot index **`k = 0, 1, 2, …`**):
+
+```
+E = dayIndex(epoch_start)    // 0-based local calendar index
+
+slotDayIndex(k) = E + k * intervalDays
+gridSlotDate(k) = calendarDate(floor(slotDayIndex(k) + 1e-9))
+```
+
+- **`gridSlotDate(0) = epoch_start`** (after weekday / seasonal snap applied when the epoch was set).
+- **`nextScheduled`** (epoch anchor): smallest **`gridSlotDate(k) >= after_date`** after allowed-weekday, seasonal, and min-gap rules (section 6).
+- **Catch-up walk** (section 3.3): iterate **`k`** while **`gridSlotDate(k) <= today`**; each distinct slot date is one obligation on the grid.
+- **At most one instance per calendar day** from the interval grid: if **`gridSlotDate(k) == gridSlotDate(k-1)`**, treat as a single slot (dedupe consecutive **`k`**).
+
+**Last-completion anchor:** after mark done, next candidate = **`completed_date + intervalDays`** (as calendar-day add), then weekday / seasonal / min-gap — same as integer intervals; the slot grid is not re-anchored to completion unless the user changes epoch / interval.
+
+**Interval ±%** (mark done): multiply stored **`n`** by the factor (e.g. **1.333 → 1.466** at +10%). Result must stay **`>= 1`**; if the product **< 1**, clamp to **`1`**.
+
+**Validation:** **`n >= 1`** required on create/edit and after ±%. Reject **`n < 1`**. UI may show “≈ every *n* …” and long-run skip rate **≈ `1 − 1/n`** of calendar days on **`every_n_days`** when **`n > 1`**.
 
 ### 5.2 Epoch
 
@@ -242,16 +278,21 @@ for each task:
 
     if catch_up and catch_up_count > 0:
         repeat catch_up_count times:
-            result += VirtualInstance(last_missed_scheduled_at)   // backlog, NOT persisted
+            result += VirtualInstance(last_missed_scheduled_at)
+            mark overdue per section 9.2 (reference = H_start)
 
     else if open instance (catch_up no / external):
         result += persisted open
+        mark overdue per section 9.2 (reference = H_start)
+
+    // Carry-in (section 7.1): open obligations with scheduled_at < H_start whose grace
+    // still covers H_start are included above; overdue = false (section 9.2)
 
     apply horizon assumptions for (now, H_start)  // section 8
 
     virtual = next_scheduled
     while virtual in [H_start, H_end] and before end_date:
-        result += VirtualInstance(virtual)        // NOT persisted
+        result += VirtualInstance(virtual)        // NOT persisted; overdue = false
         virtual = advance(virtual, rules)
 
 return result
@@ -261,6 +302,31 @@ return result
 - **Never INSERT** horizon walk results into the database.
 - **Catch-up yes:** **`catch_up_count`** virtuals at **`last_missed_scheduled_at`**, plus forward **virtual** slots from `next_scheduled`.
 - **Catch-up no:** at most one **open**; virtuals for forward preview only.
+
+Each instance in the result carries scheduling metadata for planning (at minimum **`scheduled_at`**, optional **`overdue`** flag per section 9).
+
+### 7.1 Carry-in — in grace before `H_start`
+
+The planner may leave work **unplanned** in the horizon; unplanned timing pain uses **`p_beyond`** ([pain-model.md](./pain-model.md) §3.2). If **`p_beyond`** still lies inside the instance’s grace band, that reference pain can be **low or zero** — acceptable.
+
+For that to behave consistently, **`scheduleHorizon`** must **include** open obligations whose ideal date is **before `H_start`** when **grace still extends past `H_start`**:
+
+```
+carry_in(i) <=>
+    instance i is open (not completed)
+    and scheduled_at(i) < H_start
+    and in_grace_at(H_start, scheduled_at(i), g_early, g_late)   // section 9.1
+```
+
+| Property | Value |
+|----------|--------|
+| **Included in horizon output** | yes (via open row or backlog virtuals — section 7 loop) |
+| **`overdue`** | **false** (section 9.2) |
+| **Regime B (planning)** | not eligible ([planning-algorithm.md](./planning-algorithm.md) §4) |
+
+**Example:** task scheduled **Mon**, **`g_late = 7`**, horizon **`H_start` = Wed** … **`H_end` = Sun**. Grace runs through **Mon+7**; **Wed ∈ grace** → instance appears in the schedule output, **`overdue = false`**. If the planner leaves it unplaced, **`p_beyond` = Mon** (day after **Sun**) may still be inside grace → low reference pain.
+
+When grace has **ended** at **`H_start`** (`scheduled_at < H_start` but outside the band), the same obligation is still included, but **`overdue = true`** (backlog / Regime B eligible).
 
 ---
 
@@ -279,14 +345,49 @@ When `H_start = now`: use actual DB state only.
 
 ---
 
-## 9. Overdue (scheduling)
+## 9. Overdue and grace (scheduling)
+
+Open creation (section 3) runs when the **scheduled calendar day has passed** — independent of grace. **Overdue** is a separate label used by the UI and planning (Regime B); it is **grace-aware**.
+
+### 9.1 Grace band
+
+Per task, same parameters as [pain-model.md](./pain-model.md):
 
 ```
-open instance is overdue  <=>  scheduled_at < today (local)
-                              and not completed
+grace_band(s) = [s - g_early, s + g_late]   // inclusive calendar days
+
+in_grace_at(reference_day, s, g_early, g_late) <=>
+    reference_day is in grace_band(s)
 ```
 
-Planning grace / Regime B: [pain-model.md](./pain-model.md).
+### 9.2 Overdue flag
+
+**At horizon planning** (reference day = **`H_start`**; when **`H_start = today`**, same as “as of today”):
+
+```
+overdue(instance, H_start) <=>
+    not completed
+    and scheduled_at < H_start
+    and NOT in_grace_at(H_start, scheduled_at, g_early, g_late)
+```
+
+Equivalently: **`scheduled_at < H_start`** and grace has **fully ended** before **`H_start`**:
+
+```
+index(H_start) - index(scheduled_at) > g_late
+```
+
+(when **`scheduled_at < H_start`**, the early-grace side does not apply.)
+
+**Forward** instances with **`scheduled_at >= H_start`** (horizon virtuals): **`overdue = false`**.
+
+**General UI** (task list, “overdue” badge when no horizon is selected): use **`reference_day = today`** with the same formula.
+
+Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](./planning-algorithm.md) §4).
+
+### 9.3 Catch-up count vs overdue
+
+**On-read** catch-up walk (section 3.3) still counts grid slots with **`S < today`** that are unsatisfied — it does **not** wait for grace to end. A slot may appear in **`catch_up_count`** while **`overdue(H_start) = false`** when grace still covers **`H_start`**. The **`overdue`** flag on horizon output is what planning and the UI use.
 
 ---
 
@@ -300,9 +401,15 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 
 ### 15 items (every day, catch-up yes)
 
-- Grid: every calendar day.
+- Grid: **`every_n_days`**, **`n = 1`**.
 - On read: `catch_up_count` = missed daily slots; `last_missed` = latest missed day.
 - Mark done: **`count -= 1`**.
+
+### Sparse daily (every 1.333 days, catch-up yes) — illustration
+
+- Grid: **`every_n_days`**, **`n = 1.333`** (≈ **4/3**); slot dates from **`epoch_start`** via §5.1.1.
+- Long run: ~**3** scheduled slots per **4** calendar days (~**25%** of days have no slot).
+- Catch-up counts **missed grid slots**, not “off” days with no slot.
 
 ### 3rd Tuesday monthly (catch-up yes) — illustration
 
@@ -332,7 +439,7 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 | 2 | Snooze | Keep `scheduled_at`; `snooze_until` |
 | 3 | Date/time | Date + `preferred_time` label |
 | 4 | Timezone | System default |
-| 5 | Intervals | days/weeks/months v1; years sketched |
+| 5 | Intervals | days/weeks/months/years; fractional **`n`** on **`every_n_*`** (§5.1.1) |
 | 6 | Weekdays | Nearest allowed |
 | 7 | Min gap | Push forward; catch-up opens exempt |
 | 8 | due() | stdout; warn on error; missing line → false |
@@ -341,6 +448,8 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 | 11 | Catch-up backlog | `last_missed_scheduled_at` + `catch_up_count` (no older dates) |
 | 12 | Catch-up no | ≤ 1 open; safety cancel on mark done |
 | 13 | Epoch on create | Default next slot from today (editable) |
+| 14 | Grace / overdue | Overdue when grace ended at reference day; carry-in before **`H_start`** in grace **`overdue = false`** |
+| 15 | Fractional **`n`** | Float **`n`** on **`every_n_*`**; epoch slot grid (§5.1.1) |
 
 ---
 
@@ -358,6 +467,10 @@ Planning grace / Regime B: [pain-model.md](./pain-model.md).
 
 | Version | Notes |
 |---------|--------|
-| 0.3 | Catch-up: last missed + count; catch-up independent of interval type |
+| 0.5.2 | **`n >= 1`** required; **`n < 1`** rejected; ±% clamps to **`1`** |
+| 0.5.1 | ~~**`n < 1`** valid~~ (superseded by 0.5.2) |
+| 0.5 | Fractional **`n`** on **`every_n_days/weeks/months/years`**; epoch slot grid (§5.1.1) |
+| 0.4 | Grace-aware **`overdue`**; carry-in before **`H_start`** in grace (not overdue); aligns with **`p_beyond`** slip |
+| 0.3 | Catch-up: last missed + count; planner uses minimal **`F_i`** (horizon + snooze only) |
 | 0.2 | TBD review locked; ephemeral horizon; snooze; on-read opens; due script contract |
 | 0.1 | Coarse draft |
