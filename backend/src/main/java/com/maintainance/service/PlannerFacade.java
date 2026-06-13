@@ -7,7 +7,6 @@ import com.maintainance.domain.model.TaskRules;
 import com.maintainance.domain.model.TaskState;
 import com.maintainance.domain.planning.PlanResult;
 import com.maintainance.domain.planning.PlanningService;
-import com.maintainance.domain.scheduling.IntervalGrid;
 import com.maintainance.domain.scheduling.SchedulingService;
 import com.maintainance.persistence.CompletionRepository;
 import com.maintainance.persistence.OpenInstanceRepository;
@@ -24,7 +23,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -69,15 +67,17 @@ public class PlannerFacade {
             if (entity.isArchived() && entity.getCatchUpCount() == 0) {
                 continue;
             }
-            TaskState state = loadAndReconcile(entity, today, horizonStart);
+            TaskState state = loadAndReconcile(entity, today);
+            Set<LocalDate> assumed = schedulingService.horizonAssumedCompletedDates(state, today, horizonStart);
             allInstances.addAll(schedulingService.scheduleHorizon(
-                    state, horizonStart, planEnd, today, Set.of()));
+                    state, horizonStart, planEnd, today, assumed));
         }
         return planningService.plan(allInstances, horizonStart, horizonEnd, planEnd, settings);
     }
 
     @Transactional
     public TaskState createTask(String name, String description, TaskRules rules) {
+        LocalDate today = LocalDate.now();
         TaskEntity entity = new TaskEntity();
         entity.setId(UUID.randomUUID());
         entity.setName(name);
@@ -85,17 +85,18 @@ public class PlannerFacade {
         entity.setArchived(false);
         entity.setRulesJson(taskMapper.writeRules(rules));
         entity.setCatchUpCount(0);
+        entity.setLastReconciledDate(today);
         Instant now = Instant.now();
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         taskRepository.save(entity);
 
         TaskState state = taskMapper.toState(entity, null);
-        state = schedulingService.initializeEpoch(state, LocalDate.now());
-        state = schedulingService.reconcileOnRead(state, LocalDate.now(), Set.of());
-        state = schedulingService.ensureNextScheduled(state, LocalDate.now());
+        state = schedulingService.initializeEpoch(state, today);
+        state = schedulingService.reconcileOnRead(state, today);
+        state = schedulingService.ensureNextScheduled(state, today);
         persistState(entity, state);
-        return loadAndReconcile(entity, LocalDate.now(), LocalDate.now());
+        return loadAndReconcile(entity, today);
     }
 
     @Transactional
@@ -109,7 +110,7 @@ public class PlannerFacade {
         }
         entity.setUpdatedAt(Instant.now());
         taskRepository.save(entity);
-        return loadAndReconcile(entity, LocalDate.now(), LocalDate.now());
+        return loadAndReconcile(entity, LocalDate.now());
     }
 
     @Transactional
@@ -122,14 +123,14 @@ public class PlannerFacade {
         List<TaskState> out = new ArrayList<>();
         LocalDate today = LocalDate.now();
         for (TaskEntity entity : taskRepository.findAll()) {
-            out.add(loadAndReconcile(entity, today, today));
+            out.add(loadAndReconcile(entity, today));
         }
         return out;
     }
 
     public TaskState getTask(UUID id) {
         TaskEntity entity = taskRepository.findById(id).orElseThrow();
-        return loadAndReconcile(entity, LocalDate.now(), LocalDate.now());
+        return loadAndReconcile(entity, LocalDate.now());
     }
 
     @Transactional
@@ -141,7 +142,7 @@ public class PlannerFacade {
             Double intervalDeltaPercent
     ) {
         TaskEntity entity = taskRepository.findById(taskId).orElseThrow();
-        TaskState state = loadAndReconcile(entity, LocalDate.now(), LocalDate.now());
+        TaskState state = loadAndReconcile(entity, LocalDate.now());
 
         CompletionEntity completion = new CompletionEntity();
         completion.setId(UUID.randomUUID());
@@ -166,34 +167,37 @@ public class PlannerFacade {
             entity.setRulesJson(taskMapper.writeRules(rules));
             state = new TaskState(state.id(), state.name(), state.description(), state.archived(), rules,
                     state.epochStart(), state.nextScheduled(), state.lastMissedScheduledAt(),
-                    state.catchUpCount(), state.openInstance());
+                    state.catchUpCount(), state.lastReconciledDate(), state.openInstance());
         }
 
         if (rules.catchUp()) {
             int count = Math.max(0, state.catchUpCount() - 1);
             LocalDate lastMissed = count == 0 ? null : state.lastMissedScheduledAt();
-            state = state.withSchedulingFields(state.epochStart(), state.nextScheduled(), lastMissed, count, null);
+            state = state.withSchedulingFields(state.epochStart(), state.nextScheduled(), lastMissed, count,
+                    state.lastReconciledDate(), null);
             openInstanceRepository.deleteByTaskId(taskId);
         } else {
             openInstanceRepository.deleteByTaskId(taskId);
-            state = state.withSchedulingFields(state.epochStart(), null, null, 0, null);
+            state = state.withSchedulingFields(state.epochStart(), null, null, 0,
+                    state.lastReconciledDate(), null);
         }
 
         LocalDate next = schedulingService.computeNextScheduled(state, LocalDate.now());
         if (intervalDeltaPercent != null && intervalDeltaPercent != 0) {
-            state = state.withSchedulingFields(next, next, state.lastMissedScheduledAt(), state.catchUpCount(), null);
+            state = state.withSchedulingFields(next, next, state.lastMissedScheduledAt(), state.catchUpCount(),
+                    state.lastReconciledDate(), null);
         } else {
             state = state.withSchedulingFields(state.epochStart(), next, state.lastMissedScheduledAt(),
-                    state.catchUpCount(), null);
+                    state.catchUpCount(), state.lastReconciledDate(), null);
         }
-        state = schedulingService.reconcileOnRead(state, LocalDate.now(), Set.of());
+        state = schedulingService.reconcileOnRead(state, LocalDate.now());
         persistState(entity, state);
     }
 
     @Transactional
     public void snoozeInstance(UUID taskId, LocalDate snoozeUntil) {
         TaskEntity entity = taskRepository.findById(taskId).orElseThrow();
-        TaskState state = loadAndReconcile(entity, LocalDate.now(), LocalDate.now());
+        TaskState state = loadAndReconcile(entity, LocalDate.now());
         OpenInstance open = state.openInstance();
         if (open == null) {
             throw new IllegalStateException("No open instance to snooze");
@@ -229,14 +233,13 @@ public class PlannerFacade {
         return taskMapper.toPlannerSettings(settingsRepository.findById(1L).orElseThrow());
     }
 
-    private TaskState loadAndReconcile(TaskEntity entity, LocalDate today, LocalDate horizonStart) {
+    private TaskState loadAndReconcile(TaskEntity entity, LocalDate today) {
         OpenInstanceEntity openEntity = openInstanceRepository.findByTaskId(entity.getId()).orElse(null);
         TaskState state = taskMapper.toState(entity, openEntity);
         if (state.epochStart() == null && !state.rules().isExternalDue()) {
             state = schedulingService.initializeEpoch(state, today);
         }
-        Set<LocalDate> assumed = new HashSet<>();
-        state = schedulingService.reconcileOnRead(state, today, assumed);
+        state = schedulingService.reconcileOnRead(state, today);
         state = schedulingService.ensureNextScheduled(state, today);
         persistState(entity, state);
         return state;

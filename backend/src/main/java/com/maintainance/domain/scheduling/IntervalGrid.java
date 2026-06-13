@@ -62,6 +62,28 @@ public final class IntervalGrid {
         throw new IllegalStateException("Could not find next grid slot");
     }
 
+    public static LocalDate previousGridSlotBefore(LocalDate epochStart, TaskRules rules, LocalDate slot) {
+        LocalDate previous = null;
+        for (LocalDate candidate : gridSlotsThrough(epochStart, rules, slot.minusDays(1))) {
+            previous = candidate;
+        }
+        return previous;
+    }
+
+    public static LocalDate lastPastCurrentObligation(LocalDate epochStart, TaskRules rules, LocalDate today) {
+        if (epochStart == null || !today.isAfter(epochStart)) {
+            return null;
+        }
+        LocalDate lastPastCurrent = null;
+        for (LocalDate slot : gridSlotsThrough(epochStart, rules, today.minusDays(1))) {
+            LocalDate successor = nextGridSlotOnOrAfter(epochStart, rules, slot);
+            if (!successor.isBefore(today)) {
+                lastPastCurrent = slot;
+            }
+        }
+        return lastPastCurrent;
+    }
+
     public static Iterable<LocalDate> gridSlotsThrough(LocalDate epochStart, TaskRules rules, LocalDate throughInclusive) {
         return () -> new SlotIterator(epochStart, rules, throughInclusive);
     }
