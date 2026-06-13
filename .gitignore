@@ -1,0 +1,9 @@
+/build/
+/backend/build/
+/frontend/dist/
+/frontend/node_modules/
+/data/
+*.iml
+.idea/
+.gradle/
+/backend/data/
