@@ -1,4 +1,4 @@
-# Scheduling model — specification (v0.5)
+# Scheduling model — specification (v0.5.2)
 
 Readable formulas only. Defines **when instances exist** and their **scheduled** times. Day assignment for workload is [pain-model.md](./pain-model.md) (**planning**).
 
@@ -130,10 +130,10 @@ Stored as structured JSON (validated in Java), not a free-form DSL string.
 
 | Type | Parameter **`n`** | Unit |
 |------|-------------------|------|
-| `every_n_days` | positive **float** (§5.1.1) | calendar days |
-| `every_n_weeks` | positive **float** | weeks (× 7 days in grid) |
-| `every_n_months` | positive **float** | mean month (× 365.2425/12 days in grid) |
-| `every_n_years` | positive **float** | mean year (× 365.2425 days in grid); may follow days/weeks/months in implementation order |
+| `every_n_days` | float **`n >= 1`** (§5.1.1) | calendar days |
+| `every_n_weeks` | float **`n >= 1`** | weeks (× 7 days in grid) |
+| `every_n_months` | float **`n >= 1`** | mean month (× 365.2425/12 days in grid) |
+| `every_n_years` | float **`n >= 1`** | mean year (× 365.2425 days in grid); may follow days/weeks/months in implementation order |
 
 Example JSON: `{ "type": "every_n_days", "n": 1.333 }`.
 
@@ -141,11 +141,9 @@ Example JSON: `{ "type": "every_n_days", "n": 1.333 }`.
 
 ### 5.1.1 Fractional **`n`** (every N days/weeks/months/years)
 
-**`n`** may be a **floating-point** value (e.g. **1.333**, **1.5**, **7.25**). Integer **`n`** behaves as before (**`n = 1`** on **`every_n_days`** = every calendar day).
+**`n`** may be a **floating-point** value **≥ 1** (e.g. **1.333**, **1.5**, **7.25**). Integer **`n`** behaves as before (**`n = 1`** on **`every_n_days`** = every calendar day).
 
-**Use case (n > 1):** **`every_n_days`** with **`n = 1.333`** (≈ **4/3**) is “mostly daily” but the grid **skips** roughly **1/4** of calendar days in the long run. With **`n = 1.5`**, long-run skip rate is about **1/3** (**`1 − 1/n`** calendar days on a dense day grid).
-
-**Use case (n < 1):** e.g. **`every_n_weeks`**, **`n = 0.5`** → **`intervalDays = 3.5`** (twice per week on average). **`n < 1`** is **valid**; same grid formula applies.
+**Use case:** **`every_n_days`** with **`n = 1.333`** (≈ **4/3**) is “mostly daily” but the grid **skips** roughly **1/4** of calendar days in the long run. With **`n = 1.5`**, long-run skip rate is about **1/3** (**`1 − 1/n`** calendar days on a dense day grid when **`n > 1`**). For cadences shorter than one full unit (e.g. twice per week), use a smaller unit type (**`every_n_days`**) or a smaller **`n`** on that unit — not **`n < 1`**.
 
 Scheduling still uses **calendar dates** (section 2.2). Fractional **`n`** defines an **epoch-anchored slot grid**, not a separate “skip random days” rule.
 
@@ -176,11 +174,9 @@ gridSlotDate(k) = calendarDate(floor(slotDayIndex(k) + 1e-9))
 
 **Last-completion anchor:** after mark done, next candidate = **`completed_date + intervalDays`** (as calendar-day add), then weekday / seasonal / min-gap — same as integer intervals; the slot grid is not re-anchored to completion unless the user changes epoch / interval.
 
-**Interval ±%** (mark done): multiply stored **`n`** by the factor (e.g. **1.333 → 1.466** at +10%).
+**Interval ±%** (mark done): multiply stored **`n`** by the factor (e.g. **1.333 → 1.466** at +10%). Result must stay **`>= 1`**; if the product **< 1**, clamp to **`1`**.
 
-**Validation:** **`n > 0`**. UI may show “≈ every *n* days” and long-run density **≈ `1/n`** slots per calendar day for **`every_n_days`**.
-
-**Note:** **`n < 1`** on a **day** grid (e.g. **0.5**) targets more than one slot per day in continuous time, but **calendar-day scheduling** collapses same-day slots — prefer **`n >= 1`** for skip-day patterns.
+**Validation:** **`n >= 1`** required on create/edit and after ±%. Reject **`n < 1`**. UI may show “≈ every *n* …” and long-run skip rate **≈ `1 − 1/n`** of calendar days on **`every_n_days`** when **`n > 1`**.
 
 ### 5.2 Epoch
 
@@ -471,6 +467,8 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 
 | Version | Notes |
 |---------|--------|
+| 0.5.2 | **`n >= 1`** required; **`n < 1`** rejected; ±% clamps to **`1`** |
+| 0.5.1 | ~~**`n < 1`** valid~~ (superseded by 0.5.2) |
 | 0.5 | Fractional **`n`** on **`every_n_days/weeks/months/years`**; epoch slot grid (§5.1.1) |
 | 0.4 | Grace-aware **`overdue`**; carry-in before **`H_start`** in grace (not overdue); aligns with **`p_beyond`** slip |
 | 0.3 | Catch-up: last missed + count; planner uses minimal **`F_i`** (horizon + snooze only) |

@@ -1,4 +1,4 @@
-# Personal maintenance planner — Requirements v0.3.5
+# Personal maintenance planner — Requirements v0.3.7
 
 Status: **Draft for sign-off**. Planning: [planning-algorithm.md](./planning-algorithm.md). Tech stack: [tech-stack.md](./tech-stack.md).
 
@@ -65,7 +65,7 @@ Let **now** = current time, **H_start** = horizon start.
 
 ### 4.1 Recurrence and anchors
 
-- **Interval expression** (e.g. every *n* days/weeks/months/years with **fractional *n***; nth weekday of month; etc.). See [scheduling-model.md](./scheduling-model.md) §5.1.1.
+- **Interval expression** (e.g. every *n* days/weeks/months/years with fractional *n* **≥ 1**; nth weekday of month; etc.). See [scheduling-model.md](./scheduling-model.md) §5.1.1.
 - **Epoch:** first **scheduled** date/time; recalculate epoch when interval changes.
 - **Anchor mode:**
   - **Epoch / first scheduled:** series follows calendar from epoch (completion on another day does not shift the series).
@@ -176,7 +176,8 @@ Optional “minimum achievable pain” analysis for comparison.
 
 | Version | Changes |
 |---------|---------|
-| v0.3.6 | Fractional **`n`**: **`n < 1`** is valid input. |
+| v0.3.7 | Fractional **`n`**: require **`n >= 1`**. |
+| v0.3.6 | ~~**`n < 1`** valid~~ (reverted in v0.3.7) |
 | v0.3.5 | Fractional interval **`n`** on every N days/weeks/months/years. |
 | v0.3.4 | Plan API: **`timingPain`** on every instance row. |
 | v0.3.3 | Extended planning horizon (2×) with truncate to user window. |
