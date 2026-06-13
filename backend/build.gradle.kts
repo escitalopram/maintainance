@@ -38,4 +38,5 @@ tasks.withType<Test> {
 
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
     archiveFileName.set("maintainance.jar")
+    dependsOn(rootProject.tasks.named("copyFrontend"))
 }
