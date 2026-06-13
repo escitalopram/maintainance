@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: maintainance
+  datasource:
+    url: jdbc:h2:file:${maintainance.data-dir:./data}/maintainance;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  h2:
+    console:
+      enabled: false
+
+server:
+  address: 127.0.0.1
+  port: 8080
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+maintainance:
+  due-script-timeout-ms: 5000
+  planning-extend-factor: 2
+  planning-max-local-search-iterations: 1000
+
+logging:
+  level:
+    root: INFO
