@@ -28,6 +28,8 @@ Decisions for v1 of the personal maintenance planner. Functional specs: [require
 - **No authentication** in v1.
 - One process: Spring Boot embedded Tomcat.
 - Data: H2 file under user home or configured path (backup = copy file).
+- **Database file path:** JVM system property **`maintainance.database-file`** (H2 file stem, no `.mv.db` suffix). Default: **`./data/maintainance`**. Example:  
+  `./gradlew :backend:bootRun -Dmaintainance.database-file=$HOME/.maintainance/planner`
 
 ---
 
