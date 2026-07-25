@@ -1,4 +1,4 @@
-# Scheduling model — specification (v0.5.2)
+# Scheduling model — specification (v0.5.4)
 
 Readable formulas only. Defines **when instances exist** and their **scheduled** times. Day assignment for workload is [pain-model.md](./pain-model.md) (**planning**).
 
@@ -31,9 +31,11 @@ Scheduling runs **before** planning. Planning reads scheduled instances (open ba
 - Do **not** store all future instances in the database.
 - **Database holds:**
   - **`next_scheduled`** — next forward slot (when not in backlog).
-  - **Catch-up backlog** (catch-up **yes** only): **`last_missed_scheduled_at`** + **`catch_up_count`** (see section 3.3). Individual older missed dates are **not** stored.
+  - **Catch-up backlog** (catch-up **yes** only): **`last_missed_scheduled_at`** + **`catch_up_count`** + **`last_reconciled_date`** (see section 3.3). Individual older missed dates are **not** stored.
   - **Open instance** row(s) for catch-up **no**, external due, or a single holder for snooze — **≤ 1** per task when `catch_up = false`.
-- **Horizon** `[H_start, H_end]`: additional instances are **projected in memory** only (section 7).
+  - **Completion** rows — historical mark-done events only (no persisted scheduled/planned instance rows for wall-clock past).
+- **Wall-clock past** (calendar days **`< today`**): completions + aggregate fields above only — not “before `H_start`”.
+- **Horizon** `[H_start, H_end]` and the **gap** **`[today, H_start)`** when **`H_start > today`**: instances are **projected in memory** only (sections 7–8).
 
 ### 2.2 Dates and timezone
 
@@ -54,7 +56,7 @@ if task has next_scheduled (or current cycle due) and now > end of that schedule
        ensure an open instance exists for that obligation
 ```
 
-- **Catch-up yes:** update **`last_missed_scheduled_at`** and **`catch_up_count`** (section 3.3).
+- **Catch-up yes:** increment **`catch_up_count`** for newly lapsed grid slots since **`last_reconciled_date`** (section 3.3). Mark done decrements; no full grid rescan from epoch.
 - **Catch-up no:** **at most one open** per task (section 3.2).
 
 No nightly batch required in v1.
@@ -78,34 +80,68 @@ Backlog is stored compactly:
 |-------|---------|
 | **`last_missed_scheduled_at`** | Scheduled date of the **most recent** missed obligation on the grid. |
 | **`catch_up_count`** | How many completions still owed (integer ≥ 0). |
+| **`last_reconciled_date`** | Watermark: last calendar day catch-up increment was applied through (section 3.3). |
 
-**Older missed dates are not stored.** Only “how many” and “last” matter.
+**Older missed dates are not stored.** Only “how many”, “last”, and the reconcile watermark matter.
 
-**On read** (`catch_up = true`):
+**Invariant:** when **`catch_up_count == 0`**, the task is **fully caught up** as of the last mark done that cleared the backlog.
+
+**Wall-clock past vs horizon gap**
+
+| Region | Boundary | Persisted? | Catch-up increment? |
+|--------|----------|------------|---------------------|
+| **Wall-clock past** | grid slot **`S < today`** | Completions + aggregate backlog fields only | **Yes** — on reconcile (below) |
+| **Horizon gap** | **`today ≤ S < H_start`** when **`H_start > today`** | **No** — virtual + ephemeral assumptions (section 8) | **No** — those days have not lapsed in wall-clock time |
+| **Horizon body** | **`H_start ≤ S ≤ H_end`** | Virtual only (section 7) | No |
+
+**Missed vs current (wall-clock past)**
+
+A grid slot **`S`** with **`S < today`** is **missed** only when a **newer** grid slot **`S′`** exists with **`S < S′ < today`** (the series has advanced past **`S`** without completion). Otherwise **`S`** is still the **current** past obligation — **not yet missed** — even though **`S < today`**.
+
+| Role | Definition |
+|------|------------|
+| **Missed** (backlog) | **`S < today`** and ∃ grid slot **`S′`** with **`S < S′ < today`** |
+| **Last past current** | Latest grid slot **`L`** with **`L < today`** that is **not** missed — kept for planning (section 7) |
+
+**On read** (`catch_up = true`) — **incremental** reconcile:
 
 ```
-catch_up_count = 0
-walk each scheduled slot S on this task's interval grid from epoch / last completion through today:
-    if S is due (S < today) and S is not satisfied by a completion or horizon assumption:
+watermark = last_reconciled_date
+for each grid slot S where watermark < S < today:
+    let P = immediate previous grid slot before S
+    if P < today:
         catch_up_count += 1
-        last_missed_scheduled_at = S   (keep the latest S)
+        last_missed_scheduled_at = P
+last_reconciled_date = today
 ```
 
-- The **grid** comes from the task’s interval rules (section 5.1 / 5.1.1 — not “calendar days” unless **`every_n_days`** with **`n = 1`**).
-- Example: **every 3rd Tuesday of the month** — three missed months → `catch_up_count = 3`, `last_missed` = date of the **third** (most recent) missed Tuesday.
-- Example: **every 1 day** (15 items) — same logic; one increment per missed daily slot.
-- Example: **every 1.333 days** — epoch-anchored grid skips ~**1/4** of days long-term; missed **grid slots** increment catch-up, not every blank calendar day.
+- A slot **`S`** newly entering wall-clock past can **miss** its predecessor **`P`**, not **`S`** itself.
+- Example: daily task, **today = Wed** — **Mon** missed (**Tue** exists), **Tue** is **last past current** (not missed until **Thu**), **`catch_up_count = 1`**, **`last_missed = Mon`**.
+- Only slots that **newly entered wall-clock past** since the last reconcile are scanned. No full grid rescan from epoch; **completions are not matched per slot** on read.
+- After a long idle period, one reconcile walks **`(last_reconciled_date, today)`** in a single pass.
+- **On task create:** set **`last_reconciled_date = today`** (do not backfill misses before the task existed).
 
 **Mark done:**
 
 ```
 catch_up_count -= 1
-completion.scheduled_at = last_missed_scheduled_at   // same reference for each backlog completion
+append completion row
+completion.scheduled_at = last_missed_scheduled_at   // reference for pain / UI
 if catch_up_count == 0:
-    clear backlog fields; recompute next_scheduled
+    clear last_missed_scheduled_at; recompute next_scheduled
+// last_reconciled_date unchanged
 ```
 
-**Planning / horizon:** expand backlog into **`catch_up_count` virtual instances**, each with **`scheduled_at = last_missed_scheduled_at`** (same `s` for pain/planner). Do not invent dates for earlier misses.
+- While **`catch_up_count > 1`**, **`last_missed_scheduled_at`** stays fixed (e.g. “3× last due Wed” → mark once → “2× last due Wed”).
+
+**Cold start / repair:** optional bootstrap — assume caught up at last completion, then count grid slots in **`(day after last completion, yesterday)`** once; or manual backlog reset.
+
+- The **grid** comes from the task’s interval rules (section 5.1 / 5.1.1 — not “calendar days” unless **`every_n_days`** with **`n = 1`**).
+- Example: **every 3rd Tuesday of the month** — three missed months → `catch_up_count = 3`, `last_missed` = date of the **third** (most recent) missed Tuesday.
+- Example: **every 1 day** (15 items) — predecessor becomes missed when the next daily slot enters wall-clock past.
+- Example: **every 1.333 days** — epoch-anchored grid skips ~**1/4** of days long-term; missed **grid slots** increment catch-up, not every blank calendar day.
+
+**Planning / horizon:** expand backlog into **`catch_up_count` virtual instances**, each with **`scheduled_at = last_missed_scheduled_at`**. Also include the **last past current** obligation (if any) as a schedulable instance — even when **`catch_up_count = 0`**. Do not invent dates for earlier misses.
 
 **UI:** may show e.g. “3× (last due Wed)” instead of three separate historical dates.
 
@@ -281,6 +317,10 @@ for each task:
             result += VirtualInstance(last_missed_scheduled_at)
             mark overdue per section 9.2 (reference = H_start)
 
+    if last past current L exists (section 3.3):
+        result += VirtualInstance(L)                // not missed; for planning
+        mark overdue per section 9.2 (reference = H_start)
+
     else if open instance (catch_up no / external):
         result += persisted open
         mark overdue per section 9.2 (reference = H_start)
@@ -288,7 +328,7 @@ for each task:
     // Carry-in (section 7.1): open obligations with scheduled_at < H_start whose grace
     // still covers H_start are included above; overdue = false (section 9.2)
 
-    apply horizon assumptions for (now, H_start)  // section 8
+    apply horizon gap assumptions (section 8)     // silent; no rows emitted
 
     virtual = next_scheduled
     while virtual in [H_start, H_end] and before end_date:
@@ -332,16 +372,23 @@ When grace has **ended** at **`H_start`** (`scheduled_at < H_start` but outside 
 
 ## 8. Horizon assumptions (future start)
 
-When `H_start > now`:
+When **`H_start > today`** (plan starts on a **future calendar day**):
 
-For each task, slots in **(now, H_start)**:
+**Gap** = grid slots **`S`** with **`today ≤ S < H_start`**. These days are still **wall-clock present or future** — they are **not** wall-clock past and **do not** affect **`catch_up_count`** or **`last_reconciled_date`**.
 
-| Condition | At H_start |
-|-----------|------------|
-| ≥ 1 scheduled slot in gap that is **not yet due** at its day | Assumed **completed** on scheduled date (no open) |
-| Otherwise | Slots **due** in gap remain **open / overdue** |
+**Gap slots are not shown.** They are assumed completed **silently** for the plan run (no persisted completion, no horizon / UI row). The user sees obligations from **wall-clock past** (backlog + **last past current**, section 3.3) and from **`[H_start, H_end]`** only.
 
-When `H_start = now`: use actual DB state only.
+```
+for each grid slot S in gap:
+    treat as completed on S for scheduleHorizon / planning input only
+    do not emit an instance row (not in plan UI)
+```
+
+**Wall-clock past at plan time:** **`last past current`** and backlog from section 3.3 **are** included in horizon output and planning — they are real obligations, not assumptions.
+
+**Ephemeral only:** gap assumptions **do not** write completion rows, **do not** move **`last_reconciled_date`**, and **do not** persistently change **`catch_up_count`**. When **`S`** later becomes wall-clock past, reconcile (section 3.3) applies normally.
+
+When **`H_start = today`**: use actual DB state only; no gap assumptions.
 
 ---
 
@@ -387,7 +434,7 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 
 ### 9.3 Catch-up count vs overdue
 
-**On-read** catch-up walk (section 3.3) still counts grid slots with **`S < today`** that are unsatisfied — it does **not** wait for grace to end. A slot may appear in **`catch_up_count`** while **`overdue(H_start) = false`** when grace still covers **`H_start`**. The **`overdue`** flag on horizon output is what planning and the UI use.
+**On-read** catch-up increment (section 3.3) marks a slot **missed** only when a newer grid slot exists before **`today`** — the **last past current** slot may still have **`S < today`** without being in **`catch_up_count`**. Increment does **not** wait for grace to end. **Horizon gap** slots are excluded from catch-up increment and from UI (section 8).
 
 ---
 
@@ -402,7 +449,7 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 ### 15 items (every day, catch-up yes)
 
 - Grid: **`every_n_days`**, **`n = 1`**.
-- On read: `catch_up_count` = missed daily slots; `last_missed` = latest missed day.
+- On read: increment for each daily grid slot in **`(last_reconciled_date, today)`**; `last_missed` = latest such slot.
 - Mark done: **`count -= 1`**.
 
 ### Sparse daily (every 1.333 days, catch-up yes) — illustration
@@ -445,7 +492,7 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 | 8 | due() | stdout; warn on error; missing line → false |
 | 9 | Script | Path + args per task |
 | 10 | Horizon | Ephemeral projection only |
-| 11 | Catch-up backlog | `last_missed_scheduled_at` + `catch_up_count` (no older dates) |
+| 11 | Catch-up backlog | `last_missed_scheduled_at` + `catch_up_count` + `last_reconciled_date` |
 | 12 | Catch-up no | ≤ 1 open; safety cancel on mark done |
 | 13 | Epoch on create | Default next slot from today (editable) |
 | 14 | Grace / overdue | Overdue when grace ended at reference day; carry-in before **`H_start`** in grace **`overdue = false`** |
@@ -467,6 +514,8 @@ Planning Regime B uses the same rule at **`H_start`** ([planning-algorithm.md](.
 
 | Version | Notes |
 |---------|--------|
+| 0.5.4 | **Missed** only when superseded before **`today`**; **last past current** for planning; gap assume-done **not shown** |
+| 0.5.3 | Incremental catch-up via **`last_reconciled_date`**; wall-clock past vs horizon gap; ephemeral §8 assumptions |
 | 0.5.2 | **`n >= 1`** required; **`n < 1`** rejected; ±% clamps to **`1`** |
 | 0.5.1 | ~~**`n < 1`** valid~~ (superseded by 0.5.2) |
 | 0.5 | Fractional **`n`** on **`every_n_days/weeks/months/years`**; epoch slot grid (§5.1.1) |

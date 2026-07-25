@@ -44,6 +44,7 @@ public class TaskMapper {
                 entity.getNextScheduled(),
                 entity.getLastMissedScheduledAt(),
                 entity.getCatchUpCount(),
+                entity.getLastReconciledDate(),
                 open
         );
     }
@@ -53,6 +54,7 @@ public class TaskMapper {
         entity.setNextScheduled(state.nextScheduled());
         entity.setLastMissedScheduledAt(state.lastMissedScheduledAt());
         entity.setCatchUpCount(state.catchUpCount());
+        entity.setLastReconciledDate(state.lastReconciledDate());
         entity.setArchived(state.archived());
     }
 
