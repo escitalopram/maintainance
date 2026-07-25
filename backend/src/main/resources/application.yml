@@ -24,6 +24,9 @@ server:
   address: 127.0.0.1
   port: 8080
 
+# Override at runtime:
+#   java -jar maintainance.jar --port=9090 --database=/path/to/maintainance
+
 springdoc:
   api-docs:
     path: /api-docs

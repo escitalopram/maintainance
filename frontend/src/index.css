@@ -64,3 +64,61 @@ body {
 .plan-calendar .rbc-calendar {
   min-height: auto;
 }
+
+/* Month view: consistent row height so events are not clipped */
+.plan-calendar--month .rbc-month-view {
+  min-height: 860px;
+}
+
+.plan-calendar--month .rbc-month-row {
+  flex: 1 0 9.5rem;
+  min-height: 9.5rem;
+  overflow: visible;
+}
+
+.plan-calendar--month .rbc-row-content {
+  min-height: 8.5rem;
+  overflow: visible;
+}
+
+.plan-calendar--month .rbc-row-bg {
+  min-height: 8.5rem;
+}
+
+.plan-calendar--month .rbc-day-bg {
+  min-height: 8.5rem;
+}
+
+.plan-calendar--month .rbc-date-cell {
+  min-height: 1.75rem;
+}
+
+.plan-calendar--month .rbc-row-segment {
+  padding: 1px;
+}
+
+.plan-calendar--month .rbc-event {
+  position: relative !important;
+  top: auto !important;
+  height: auto !important;
+  min-height: 2.5rem;
+  overflow: visible;
+  white-space: normal;
+  line-height: 1.2;
+}
+
+.plan-calendar--month .rbc-event-content {
+  overflow: visible;
+  white-space: normal;
+}
+
+.plan-calendar--month .plan-event-month {
+  overflow: visible;
+  white-space: normal;
+}
+
+.plan-calendar--month .rbc-show-more {
+  margin-top: 2px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
