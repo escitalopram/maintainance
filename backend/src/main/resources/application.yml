@@ -32,6 +32,7 @@ springdoc:
 
 maintainance:
   # H2 file path without extension (.mv.db). Override at runtime:
+  #   java -jar maintainance.jar --database=/path/to/maintainance
   #   java -Dmaintainance.database-file=/path/to/maintainance -jar maintainance.jar
   database-file: ./data/maintainance
   due-script-timeout-ms: 5000

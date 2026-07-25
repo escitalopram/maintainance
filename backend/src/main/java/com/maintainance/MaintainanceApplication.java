@@ -7,6 +7,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class MaintainanceApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(MaintainanceApplication.class, args);
+        SpringApplication.run(MaintainanceApplication.class, MaintainanceCli.applyOverrides(args));
     }
 }
