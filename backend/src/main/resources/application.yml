@@ -2,7 +2,7 @@ spring:
   application:
     name: maintainance
   datasource:
-    url: jdbc:h2:file:${maintainance.data-dir:./data}/maintainance;AUTO_SERVER=TRUE
+    url: jdbc:h2:file:${maintainance.database-file:./data/maintainance};AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
     password:
@@ -31,6 +31,9 @@ springdoc:
     path: /swagger-ui.html
 
 maintainance:
+  # H2 file path without extension (.mv.db). Override at runtime:
+  #   java -Dmaintainance.database-file=/path/to/maintainance -jar maintainance.jar
+  database-file: ./data/maintainance
   due-script-timeout-ms: 5000
   planning-extend-factor: 2
   planning-max-local-search-iterations: 1000
