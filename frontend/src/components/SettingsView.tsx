@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { Settings } from '../api/types'
 import { useSettings, useSettingsMutation } from '../hooks/queries'
-
-const inputClass =
-  'mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none'
+import { FutureFeatureField } from './FutureFeatureField'
+import { fieldsetFutureClass, inputClass, inputClassFuture } from './formStyles'
 
 export function SettingsView() {
   const { data, isLoading, error } = useSettings()
@@ -35,7 +34,7 @@ export function SettingsView() {
         <input
           type="number"
           min={1}
-          className={inputClass}
+          className={`mt-1 ${inputClass}`}
           value={form.softBudgetMinutes}
           onChange={(e) => set('softBudgetMinutes', Number(e.target.value))}
         />
@@ -46,7 +45,7 @@ export function SettingsView() {
         <input
           type="number"
           min={1}
-          className={inputClass}
+          className={`mt-1 ${inputClass}`}
           value={form.hardCapMinutes}
           onChange={(e) => set('hardCapMinutes', Number(e.target.value))}
         />
@@ -58,7 +57,7 @@ export function SettingsView() {
           type="number"
           min={0}
           step={0.1}
-          className={inputClass}
+          className={`mt-1 ${inputClass}`}
           value={form.painThreshold}
           onChange={(e) => set('painThreshold', Number(e.target.value))}
         />
@@ -70,7 +69,7 @@ export function SettingsView() {
           type="number"
           min={0}
           step={0.01}
-          className={inputClass}
+          className={`mt-1 ${inputClass}`}
           value={form.painPerMinuteOverThreshold}
           onChange={(e) => set('painPerMinuteOverThreshold', Number(e.target.value))}
         />
@@ -82,7 +81,7 @@ export function SettingsView() {
           type="number"
           min={0}
           step={0.01}
-          className={inputClass}
+          className={`mt-1 ${inputClass}`}
           value={form.beta}
           onChange={(e) => set('beta', Number(e.target.value))}
         />
@@ -95,7 +94,7 @@ export function SettingsView() {
           min={0.01}
           max={1}
           step={0.01}
-          className={inputClass}
+          className={`mt-1 ${inputClass}`}
           value={form.defaultBacklogP}
           onChange={(e) => set('defaultBacklogP', Number(e.target.value))}
         />
@@ -106,11 +105,37 @@ export function SettingsView() {
         <input
           type="number"
           min={1}
-          className={inputClass}
+          className={`mt-1 ${inputClass}`}
           value={form.planningExtendFactor}
           onChange={(e) => set('planningExtendFactor', Number(e.target.value))}
         />
       </label>
+
+      <fieldset className={`${fieldsetFutureClass} max-w-xl`}>
+        <legend className="col-span-full px-1 text-sm font-semibold text-amber-900">Planned features</legend>
+        <p className="col-span-full -mt-1 text-xs text-amber-900/80">
+          Planner options not yet exposed in settings.
+        </p>
+
+        <FutureFeatureField
+          label="Local search iterations"
+          hint="Post-greedy improvement pass (planning v2)."
+        >
+          <input type="number" className={inputClassFuture} disabled value={1000} readOnly />
+        </FutureFeatureField>
+
+        <FutureFeatureField
+          label="Same-day ordering"
+          hint="Define finish-before edges between tasks on the same day."
+        >
+          <textarea
+            className={`${inputClassFuture} min-h-20 resize-none`}
+            disabled
+            placeholder="No ordering rules editor yet"
+            readOnly
+          />
+        </FutureFeatureField>
+      </fieldset>
 
       <button
         type="submit"

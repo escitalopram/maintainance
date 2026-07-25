@@ -1,16 +1,29 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useState } from 'react'
-import type { PlanItem } from '../api/types'
+import type { IntervalType, PlanItem } from '../api/types'
 import { useInstanceActions } from '../hooks/queries'
+import { FutureFeatureField } from './FutureFeatureField'
+import { inputClass, inputClassFuture } from './formStyles'
+
+function supportsIntervalAdjust(intervalType: IntervalType): boolean {
+  return intervalType.startsWith('EVERY_N_')
+}
 
 interface InstanceDialogProps {
   item: PlanItem | null
   taskName: string
+  intervalType?: IntervalType
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-export function InstanceDialog({ item, taskName, open, onOpenChange }: InstanceDialogProps) {
+export function InstanceDialog({
+  item,
+  taskName,
+  intervalType,
+  open,
+  onOpenChange,
+}: InstanceDialogProps) {
   const actions = useInstanceActions()
   const [intervalDelta, setIntervalDelta] = useState('')
   const [snoozeUntil, setSnoozeUntil] = useState('')
@@ -18,6 +31,19 @@ export function InstanceDialog({ item, taskName, open, onOpenChange }: InstanceD
   if (!item) return null
 
   const canSnooze = item.placement !== 'unassigned'
+  const intervalAdjustPlanned = intervalType != null && !supportsIntervalAdjust(intervalType)
+
+  const intervalAdjustField = (
+    <input
+      type="number"
+      step={1}
+      placeholder="e.g. 10 or -5"
+      className={intervalAdjustPlanned ? inputClassFuture : `mt-1 ${inputClass}`}
+      value={intervalDelta}
+      onChange={(e) => setIntervalDelta(e.target.value)}
+      disabled={intervalAdjustPlanned}
+    />
+  )
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -48,24 +74,26 @@ export function InstanceDialog({ item, taskName, open, onOpenChange }: InstanceD
           </dl>
 
           <div className="mt-6 space-y-4">
-            <label className="block text-sm">
-              Interval adjust on complete (%)
-              <input
-                type="number"
-                step={1}
-                placeholder="e.g. 10 or -5"
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                value={intervalDelta}
-                onChange={(e) => setIntervalDelta(e.target.value)}
-              />
-            </label>
+            {intervalAdjustPlanned ? (
+              <FutureFeatureField
+                label="Interval adjust on complete (%)"
+                hint="Only supported for every-N interval tasks in the spec."
+              >
+                {intervalAdjustField}
+              </FutureFeatureField>
+            ) : (
+              <label className="block text-sm">
+                Interval adjust on complete (%)
+                {intervalAdjustField}
+              </label>
+            )}
 
             {canSnooze && (
               <label className="block text-sm">
                 Snooze until
                 <input
                   type="date"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className={`mt-1 ${inputClass}`}
                   value={snoozeUntil}
                   onChange={(e) => setSnoozeUntil(e.target.value)}
                 />

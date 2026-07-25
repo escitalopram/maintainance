@@ -3,6 +3,8 @@ import { format, parseISO } from 'date-fns'
 import { useTaskMutations, useTasks } from '../hooks/queries'
 import type { Task } from '../api/types'
 import { TaskForm } from './TaskForm'
+import { FutureFeatureField } from './FutureFeatureField'
+import { inputClassFuture } from './formStyles'
 
 export function TasksView() {
   const { data: tasks, isLoading, error } = useTasks()
@@ -94,6 +96,14 @@ export function TasksView() {
                 setEditing({ ...editing, ...values, archived: values.archived ?? editing.archived })
               }}
             />
+            <FutureFeatureField label="Completion history" hint="Past completions for this task (v2 roadmap).">
+              <div
+                className={`${inputClassFuture} rounded-xl p-4 text-xs italic`}
+                aria-hidden
+              >
+                History view not available yet
+              </div>
+            </FutureFeatureField>
             <button
               type="button"
               className="text-sm text-red-600 hover:underline"

@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import type { Task, TaskRules } from '../api/types'
-
-const inputClass =
-  'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500'
+import { FutureFeatureField } from './FutureFeatureField'
+import { fieldsetFutureClass, inputClass, inputClassFuture } from './formStyles'
 
 function defaultRules(): TaskRules {
   return {
@@ -184,17 +183,112 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
             onChange={(e) => setRule('backlogP', Number(e.target.value))}
           />
         </label>
+        <FutureFeatureField
+          className="col-span-full md:col-span-2"
+          label="Pain curve preview"
+          hint="Visual timing-pain curve for this task (v2 roadmap)."
+        >
+          <div
+            className={`${inputClassFuture} flex h-20 items-center justify-center text-xs italic`}
+            aria-hidden
+          >
+            Chart preview not available yet
+          </div>
+        </FutureFeatureField>
       </fieldset>
 
       {rules.intervalType === 'EXTERNAL_DUE' && (
-        <label className="block text-sm">
-          Due script path
+        <div className="space-y-4">
+          <label className="block text-sm">
+            Due script path
+            <input
+              className={inputClass}
+              value={rules.dueScriptPath ?? ''}
+              onChange={(e) => setRule('dueScriptPath', e.target.value)}
+            />
+          </label>
+          <FutureFeatureField label="Due script arguments" hint="Extra CLI args for the due script.">
+            <input className={inputClassFuture} disabled placeholder="e.g. --config /path/to.cfg" />
+          </FutureFeatureField>
+        </div>
+      )}
+
+      <fieldset className={fieldsetFutureClass}>
+        <legend className="col-span-full px-1 text-sm font-semibold text-amber-900">Planned features</legend>
+        <p className="col-span-full -mt-1 text-xs text-amber-900/80">
+          Fields below are on the v2 roadmap. They use dashed styling until the feature ships.
+        </p>
+
+        <FutureFeatureField label="Tags" hint="Group tasks with name and description labels.">
+          <input className={inputClassFuture} disabled placeholder="e.g. home, health" />
+        </FutureFeatureField>
+
+        <FutureFeatureField label="Preferred time of day" hint="Day-level scheduling hint for the planner.">
+          <select className={inputClassFuture} disabled defaultValue="">
+            <option value="">Not set</option>
+            <option value="morning">Morning</option>
+            <option value="afternoon">Afternoon</option>
+            <option value="evening">Evening</option>
+          </select>
+        </FutureFeatureField>
+
+        <FutureFeatureField
+          label="Allowed weekdays"
+          hint="Restrict which weekdays a task may be scheduled on."
+        >
+          <input className={inputClassFuture} disabled value="All days (weekday picker planned)" readOnly />
+        </FutureFeatureField>
+
+        <FutureFeatureField label="Season start" hint="First day the task is active each year.">
+          <input type="date" className={inputClassFuture} disabled />
+        </FutureFeatureField>
+
+        <FutureFeatureField label="Season end" hint="Last day the task is active each year.">
+          <input type="date" className={inputClassFuture} disabled />
+        </FutureFeatureField>
+
+        <FutureFeatureField label="End date" hint="Auto-archive the task after this date.">
+          <input type="date" className={inputClassFuture} disabled />
+        </FutureFeatureField>
+
+        <FutureFeatureField
+          label="Min days between scheduled"
+          hint="Minimum spacing between planned instances."
+        >
+          <input type="number" min={0} className={inputClassFuture} disabled placeholder="e.g. 7" />
+        </FutureFeatureField>
+
+        <FutureFeatureField
+          label="Backlog count multiplier"
+          hint="Toggle whether catch-up count affects timing pain."
+        >
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" className="accent-amber-600" checked disabled />
+            Enabled (editor planned)
+          </label>
+        </FutureFeatureField>
+
+        <FutureFeatureField
+          label="Nth weekday of month"
+          hint="e.g. 3rd Tuesday — alternative interval type."
+        >
+          <input className={inputClassFuture} disabled placeholder="Not available yet" readOnly />
+        </FutureFeatureField>
+      </fieldset>
+
+      {initial && (
+        <FutureFeatureField
+          label="Epoch start"
+          hint="Edit the anchor date for epoch-based recurrence."
+        >
           <input
-            className={inputClass}
-            value={rules.dueScriptPath ?? ''}
-            onChange={(e) => setRule('dueScriptPath', e.target.value)}
+            type="date"
+            className={inputClassFuture}
+            disabled
+            value={initial.epochStart ?? ''}
+            readOnly
           />
-        </label>
+        </FutureFeatureField>
       )}
 
       {initial && (
