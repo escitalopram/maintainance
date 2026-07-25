@@ -215,6 +215,7 @@ export function PlanView() {
       <InstanceDialog
         item={selected}
         taskName={selected ? (names.get(selected.taskId)?.name ?? 'Task') : ''}
+        intervalType={selected ? names.get(selected.taskId)?.rules.intervalType : undefined}
         open={selected !== null}
         onOpenChange={(open) => !open && setSelected(null)}
       />
