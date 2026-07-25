@@ -119,6 +119,7 @@ public class PlannerFacade {
         taskRepository.deleteById(id);
     }
 
+    @Transactional
     public List<TaskState> listTasks() {
         List<TaskState> out = new ArrayList<>();
         LocalDate today = LocalDate.now();
@@ -128,6 +129,7 @@ public class PlannerFacade {
         return out;
     }
 
+    @Transactional
     public TaskState getTask(UUID id) {
         TaskEntity entity = taskRepository.findById(id).orElseThrow();
         return loadAndReconcile(entity, LocalDate.now());
