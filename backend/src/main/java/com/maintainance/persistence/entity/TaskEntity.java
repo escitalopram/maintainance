@@ -40,6 +40,9 @@ public class TaskEntity {
     @Column(name = "catch_up_count", nullable = false)
     private int catchUpCount;
 
+    @Column(name = "last_reconciled_date", nullable = false)
+    private LocalDate lastReconciledDate;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -119,6 +122,14 @@ public class TaskEntity {
 
     public void setCatchUpCount(int catchUpCount) {
         this.catchUpCount = catchUpCount;
+    }
+
+    public LocalDate getLastReconciledDate() {
+        return lastReconciledDate;
+    }
+
+    public void setLastReconciledDate(LocalDate lastReconciledDate) {
+        this.lastReconciledDate = lastReconciledDate;
     }
 
     public Instant getCreatedAt() {
