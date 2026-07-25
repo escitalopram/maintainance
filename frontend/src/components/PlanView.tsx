@@ -80,7 +80,9 @@ export function PlanView() {
       })
   }, [plan, names])
 
-  const unassigned = plan?.items.filter((i) => !i.plannedAt) ?? []
+  const unassigned = plan?.items.filter(
+    (i) => !i.plannedAt && i.scheduledAt <= horizonEnd,
+  ) ?? []
 
   const dayPropGetter = (date: Date) => {
     const key = format(date, 'yyyy-MM-dd')

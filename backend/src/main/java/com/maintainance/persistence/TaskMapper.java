@@ -14,6 +14,7 @@ import com.maintainance.persistence.entity.TaskEntity;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -34,12 +35,17 @@ public class TaskMapper {
                 openEntity.getScheduledAt(),
                 openEntity.getSnoozeUntil()
         );
+        LocalDate createdDate = entity.getCreatedAt()
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate();
         return new TaskState(
                 entity.getId(),
                 entity.getName(),
                 entity.getDescription(),
                 entity.isArchived(),
                 parseRules(entity.getRulesJson()),
+                createdDate,
+                null,
                 entity.getEpochStart(),
                 entity.getNextScheduled(),
                 entity.getLastMissedScheduledAt(),
