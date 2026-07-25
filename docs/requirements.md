@@ -1,4 +1,4 @@
-# Personal maintenance planner — Requirements v0.3
+# Personal maintenance planner — Requirements v0.3.7
 
 Status: **Draft for sign-off**. Planning: [planning-algorithm.md](./planning-algorithm.md). Tech stack: [tech-stack.md](./tech-stack.md).
 
@@ -33,10 +33,10 @@ Single-user, localhost application to define maintenance tasks with composable s
 
 ### 3.1 Scheduling (instance generation)
 
-Computes **scheduled** instances in `[H_start, H_end]` plus overdue backlog before `H_start`.
+Computes **scheduled** instances in `[H_start, H_end]`, plus **open obligations before `H_start`** (overdue backlog and **in-grace carry-in** — see [scheduling-model.md](./scheduling-model.md) §7.1, §9).
 
 - **Snooze** affects scheduling.
-- **Overdue** instances included; planned as early as possible in planning.
+- **Overdue** (grace ended at **`H_start`**) instances are included; planning may use Regime B. **In-grace carry-in** (`scheduled_at < H_start` but grace covers **`H_start`**) is included with **`overdue = false`**.
 - **Due function:** returns `true` (due) or `false` (not due); when due, schedule ASAP as rules allow.
 - **Archived** (`end_date` past): no **new** instances; **catch-up exception:** outstanding missed instances remain until completed.
 
@@ -44,8 +44,11 @@ Computes **scheduled** instances in `[H_start, H_end]` plus overdue backlog befo
 
 Assigns **planned** dates/times within the horizon using flexibility, importance, duration, same-day ordering, and daily time/pain rules.
 
+- **Planning lookahead:** optimize on an **extended horizon** (default **2×** user span), then **truncate** to the requested window ([planning-algorithm.md](./planning-algorithm.md) §2.1).
 - **Same-day ordering:** hard constraint (cosmetic).
 - **Preferred time of day:** display hint in v1 unless specified later.
+- **Unplanned instances** (shown on the plan but not placed in the horizon): reported timing pain uses the **day immediately after `H_end`** — see [pain-model.md](./pain-model.md) §3.2.
+- **Plan output:** each instance row includes **`timingPain`** (assigned and unplanned) — [planning-algorithm.md](./planning-algorithm.md) §10.1.
 
 ### 3.3 Horizon assumptions
 
@@ -62,7 +65,7 @@ Let **now** = current time, **H_start** = horizon start.
 
 ### 4.1 Recurrence and anchors
 
-- **Interval expression** (e.g. every *n* days/weeks/months; nth weekday of month; etc.).
+- **Interval expression** (e.g. every *n* days/weeks/months/years with fractional *n* **≥ 1**; nth weekday of month; etc.). See [scheduling-model.md](./scheduling-model.md) §5.1.1.
 - **Epoch:** first **scheduled** date/time; recalculate epoch when interval changes.
 - **Anchor mode:**
   - **Epoch / first scheduled:** series follows calendar from epoch (completion on another day does not shift the series).
@@ -97,7 +100,7 @@ Let **now** = current time, **H_start** = horizon start.
 ## 5. Interval adjustment (±%)
 
 - Offered **only** when marking an instance **done**.
-- Only when interval type supports proportional change (e.g. every *n* days/months/years).
+- Only when interval type supports proportional change (**`every_n_*`** with numeric **`n`**, including fractional).
 - Updates interval, starts new **epoch**, recomputes **next scheduled** immediately.
 - Does not persist a chain of future instances beyond open-instance rules.
 
@@ -173,6 +176,13 @@ Optional “minimum achievable pain” analysis for comparison.
 
 | Version | Changes |
 |---------|---------|
+| v0.3.7 | Fractional **`n`**: require **`n >= 1`**. |
+| v0.3.6 | ~~**`n < 1`** valid~~ (reverted in v0.3.7) |
+| v0.3.5 | Fractional interval **`n`** on every N days/weeks/months/years. |
+| v0.3.4 | Plan API: **`timingPain`** on every instance row. |
+| v0.3.3 | Extended planning horizon (2×) with truncate to user window. |
+| v0.3.2 | Scheduling: in-grace carry-in before horizon; grace-aware overdue. |
+| v0.3.1 | Unplanned instances: reported timing pain on day after horizon end. |
 | v0.3 | No pain cap; min days between scheduled instances rule; clarified pain threshold is non-cap. |
 | v0.2 | Horizon logic; timestamps only; daily pain curve + hard time cap; no “weekend” type. |
 | v0.1 | Initial two-step model. |

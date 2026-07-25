@@ -1,6 +1,6 @@
-# Planning algorithm — specification (v0.1)
+# Planning algorithm — specification (v0.3.4)
 
-Procedural spec for **planning** (assigning **planned** dates). Pain formulas: [pain-model.md](./pain-model.md). Instance generation: [scheduling-model.md](./scheduling-model.md) (when present).
+Procedural spec for **planning** (assigning **planned** dates). Pain formulas: [pain-model.md](./pain-model.md). Instance generation: [scheduling-model.md](./scheduling-model.md).
 
 **Status:** Locked for v1 implementation.
 
@@ -19,40 +19,94 @@ Given a horizon `[H_start, H_end]` and current task state, produce a **plan**: a
 ```
 plan(horizonStart, horizonEnd, settings, tasks):
     1. reconcileOnRead(tasks)              // scheduling: opens, catch_up_count, etc.
-    2. instances = scheduleHorizon(...)    // opens + backlog virtuals + forward virtuals
-    3. for each instance in instances:
-           build F_i                       // feasible days (section 3)
-    4. assignment = planAssign(instances, F_i, settings)   // section 5
-    5. return PlanResult(assignment, pains, flags)         // section 7
+    2. H_user = [horizonStart, horizonEnd]
+       H_plan = extendHorizon(H_user)           // section 2.1 (default 2× span)
+    3. instances = scheduleHorizon(tasks, H_user.start, H_plan.end)
+    4. for each instance in instances:
+           build F_i on H_plan                  // section 3
+    5. assignment = planAssign(instances, F_i, settings)
+    6. return truncatePlan(assignment, H_user) // section 2.1 — user-visible result
 ```
 
-Scheduling steps 1–2 are defined in scheduling-model; this document starts at **feasible days** and **assignment**.
+Scheduling steps 1–3 are defined in scheduling-model; this document starts at **feasible days** and **assignment**.
+
+### 2.1 Extended planning horizon (lookahead)
+
+**Problem:** A hard cutoff at **`H_user_end`** creates boundary effects: the optimizer may **cluster** work on the last user day, trigger **overflow** unnecessarily, or make **local-search** moves that look optimal only because there is “nowhere left to go.” Unplanned reference pain at **`p_beyond`** is correct but should not **distort** placement **inside** the user window.
+
+**Strategy:** Plan on a **longer internal horizon** than the user requested, then **truncate** to the user span for display and API output.
+
+| Symbol | Meaning |
+|--------|---------|
+| **`H_user`** | `[U_start, U_end]` — what the user asked for (week / month). |
+| **`H_plan`** | Extended horizon used for **`F_i`**, assignment, and **`P_total`** optimization. |
+| **`p_beyond`** | Always **`U_end + 1 day`** — **not** the internal extended end. |
+
+**Default extension (v1):** **2× span** — same start, end pushed forward by the user horizon length:
+
+```
+len = calendar_days(U_start, U_end)    // inclusive count
+U_plan_end = U_end + len               // e.g. 7-day user window → plan 14 days from U_start
+H_plan = [U_start, U_plan_end]
+```
+
+**`extend_factor`** (global setting, default **2**) may generalize this later; v1 uses **2×** as above.
+
+**Truncation (`truncatePlan`):**
+
+| Internal assignment **`p`** | User-visible result |
+|----------------------------|---------------------|
+| **`U_start <= p <= U_end`** | **`planned_at = p`** (normal assigned row) |
+| **`p > U_end`** or unassigned internally | **`planned_at = null`**, **`placement: "unassigned"`**; **`timingPain`** at **`p_beyond`** (§8.2) |
+
+- **`P_total`** is minimized over the **full **`H_plan`** assignment** (including days after **`U_end`**).
+- **`P_total_reported`**, daily loads **`L(d)`**, **`over_hard_cap`**, and API **`horizonEnd`** reflect **`H_user` only**.
+- **Scheduling **`overdue`** / carry-in** still use **`U_start`** as **`H_start`** (user horizon start), not the extended tail.
+
+**What this fixes:** last-day cramming, spurious overflow when work would naturally sit just after the user window, and greedy/local-search edge behavior at the cutoff.
+
+**What it does not fix:** true overload inside **`H_user`**, snooze blocking the whole user window, or mandatory unplanned rows when internal placement lands only in the extended tail (those become user-visible unplanned with **`p_beyond`** pain — intentional).
+
+**Implementation note:** Run **`scheduleHorizon`** through **`H_plan.end`** so forward virtuals exist in the extension; **`F_i`** uses **`H_plan.end`**, not **`U_end`**.
 
 ---
 
-## 3. Feasible days `F_i`
+## 3. Feasible days `F_i` (minimal)
 
-For each plannable instance **i**, **`F_i`** is the set of calendar days **d** in `[H_start, H_end]` such that:
+**Season, allowed weekdays, min gap, interval grid, and archive** are enforced by the **scheduler** when producing **`scheduled_at`**. The planner does **not** re-apply them.
 
-| Rule | Condition |
-|------|-----------|
-| Horizon | `H_start <= d <= H_end` |
-| Allowed weekdays | `d` matches task weekday rules (if any) |
-| Seasonal window | `d` inside seasonal window (if any) |
-| Snooze | `d >= snooze_until` (if set on this instance) |
-| Archived | Forward virtuals excluded; **catch-up backlog** rows still plannable |
+For each instance **i**, build **`F_i`** over the **planning horizon** **`H_plan`** (§2.1), not the user cutoff alone:
 
-**`d0_i`** = earliest day in **`F_i`** (first feasible day). Used by Regime B in pain-model.
+```
+F_i = { d | U_start <= d <= U_plan_end
+          AND (snooze_until is null OR d >= snooze_until) }
+```
 
-**ASAP / external due:** same as other instances once an open row exists; **`F_i`** from horizon start subject to snooze/weekdays.
+**`U_start`** / **`U_plan_end`** = bounds of **`H_plan`**.
 
-Days **not** in **`F_i`** are never chosen; they are not “infinite pain” days.
+**User-visible `p_beyond` and reported daily load** still use **`H_user`** = `[U_start, U_end]` (§2.1).
+
+| Rule | Owner |
+|------|--------|
+| Horizon | Planner |
+| Snooze (defer placement) | Planner — **`scheduled_at`** unchanged (pain still uses **s**) |
+| Allowed weekdays, season, end date, … | **Scheduler** only |
+
+**`d0_i`** = earliest day in **`F_i`**. Used by Regime B ([pain-model.md](./pain-model.md)).
+
+**Beyond user horizon (reference only, not in user-visible plan):**
+
+```
+p_beyond = calendar day immediately after U_end    // user horizon end, not U_plan_end
+```
+
+**Unplanned instances** (no **`planned_at`** on the plan) use **timing pain at `p_beyond`** — the same curve as if the work slipped to the first day after the horizon (§8.2). Not a valid assignment day.
 
 ---
 
 ## 4. Overdue for Regime B (planning)
 
-An instance uses **Regime B** (0 timing pain on **`d0_i`**) when **both**:
+An instance uses **Regime B** (0 timing pain on **`d0_i`**) when scheduling marks it **`overdue`** at **`H_start`** ([scheduling-model.md](./scheduling-model.md) §9.2) — equivalently **both**:
 
 1. **`scheduled_at < H_start`** (or `< today` when `H_start = today`), and  
 2. **Grace has ended** as of **`H_start`**:  
@@ -102,38 +156,118 @@ Multiple backlog virtuals of the **same** task on one day: any order unless edge
 
 ---
 
-## 7. Daily cap `H_hard` — best effort
+## 7. Daily cap `H_hard` — hard constraint (with overflow)
 
-**Assignment** does **not** treat **`H_hard`** as a hard stop.
+**`H_hard`** is a **per-day minute limit** on planned work. It is **not** a soft suggestion.
 
-- Planner assigns all instances to minimize pain (may exceed **`H_hard`** on some days).
-- For each day **d** in the result:
+### 7.1 Normal assignment (strict)
+
+When placing instance **i** on day **d**:
 
 ```
-L(d) = sum of duration_minutes for instances planned on d
-over_hard_cap(d) = (L(d) > H_hard)
+allow  <=>  L(d) + d_i <= H_hard
 ```
 
-**`PlanResult.days[]`** includes **`over_hard_cap`** boolean per day for UI (warn / highlight).
+If no day in **`F_i`** satisfies this, the instance is **not** placed in strict mode (held for overflow pass).
 
-**Pain** from **`P_daily`** still uses **`rho(L)`** for all **`L`** (including **`L > H_hard`**). No separate “hard reject” in v1.
+**Effect:** the planner **must** use days other than **`scheduled_at` / grace / `d0`** when the ideal day is full — even if **timing pain** is higher there. That fixes clustering on ideal days when **`H_hard`** would be exceeded.
 
-*(This clarifies implementation vs pain-model “hard constraint” wording: assignment is best-effort; overload is flagged, not forbidden.)*
+### 7.2 When may `L(d) > H_hard` happen?
+
+**Only** when it is **impossible** to assign **every** instance to **some** day in its **`F_i`** such that **`L(d) <= H_hard`** for **all** days **d** in the horizon.
+
+Typical impossibility cases:
+
+| Case | Example |
+|------|---------|
+| **A. Total overload** | Sum of all instance durations **>** total assignable capacity in the horizon (see §7.3). |
+| **B. Bin-packing margin** | Aggregate capacity is enough, but **no** placement fits: e.g. **7** days × **`H_hard = 3`**, **8** instances × **2** min — each day fits at most one 2-min task (1 min left); **7** placed, **8th** cannot fit anywhere without exceeding **`H_hard`** on some day. |
+| **C. Single instance too large** | One instance has **`d_i > H_hard`** — strict mode can never place it without exceed on that day. |
+
+In those cases the planner runs an **overflow pass** (§7.4). Days with **`L(d) > H_hard`** after overflow get **`over_hard_cap: true`**.
+
+If strict mode succeeds for **all** instances, **`over_hard_cap`** is **false** on **every** day.
+
+### 7.3 Horizon capacity (for diagnostics)
+
+For each calendar day **d** in `[H_start, H_end]`:
+
+```
+cap(d) = H_hard   (same for all days in v1)
+C_total = sum over days d in horizon of cap(d)
+D_total = sum of d_i over all instances to plan
+```
+
+- **`D_total > C_total`** → case **A** (total overload).  
+- **`D_total <= C_total`** but strict assignment fails → case **B** (packing).  
+- **`max(d_i) > H_hard`** → case **C**.
+
+### 7.4 Overflow pass
+
+If strict assignment leaves **unassigned** instances:
+
+1. Set warning **`plan_underflow_strict_cap`** (and subtype **A** / **B** / **C** if detected).  
+2. Assign remaining instances minimizing **`P_total`**, **allowing** **`L(d) > H_hard`**.  
+3. Flag each day with **`L(d) > H_hard`** as **`over_hard_cap`**.
+
+Prefer placing overflow on days with **most remaining slack** first, then by pain — details in §9.
+
+Instances still unassignable after overflow → **`unassigned_instances`** (§8).
+
+### 7.5 Mandatory assignment
+
+If **`F_i`** is **non-empty**, instance **i** **must** receive a **`planned_at`** in strict or overflow phase.
+
+**Unassigned** ( **`planned_at` null** ) only when **`F_i`** is **empty** (e.g. entire horizon before **`snooze_until`**, or no instance in horizon scope from scheduler).
+
+### 7.6 Pain
+
+**`P_daily`** uses **`rho(L(d))`** for the **final** loads (including overflow). High **`L(d)`** on overflow days is both flagged and penalized by pain.
 
 ---
 
-## 8. Pain (reference)
+## 8. Pain and unassigned instances
 
-Total objective (minimize):
+### 8.1 Assigned instances
 
 ```
 P_total = P_timing + P_daily
 ```
 
 - **Timing:** Regime A/B + backlog **`M(c)`** — [pain-model.md](./pain-model.md).
-- **Daily:** **`rho(L(d))`** per day.
+- **Daily:** **`rho(L(d))`** for each day **d** in the horizon (final loads, including overflow).
 
-No pain cap; compare **`P_total`** to **`P*`** for UI only.
+Each **assigned** row in **PlanResult** includes **`timingPain`** = **`timing_pain(i, p = planned_at)`** after truncation (§2.1) — same value used in **`P_timing`**.
+
+Minimize **`P_total`** over assignments (subject to §7).
+
+### 8.2 Unplanned instances (on the plan, not placed)
+
+Instances without a **`planned_at`** appear on the plan with **`plannedAt: null`**, **`placement: "unassigned"`**. Typical case: **`F_i` empty** (e.g. snooze blocks the whole horizon).
+
+**Rule:** use **timing pain for the day after `H_end`** — evaluate the usual timing curve at **`p_beyond`**, not a new formula:
+
+```
+timing_pain_unassigned(i) = timing_pain(i, p = p_beyond)
+```
+
+- Use **Regime A** only (**`p_beyond`** is never **`d0`** and not in the horizon).
+- Apply backlog **`M(c)`** the same as for assigned instances.
+- **No **`P_daily`** contribution** (no minutes on any horizon day).
+
+Each **unplanned** row includes **`timingPain`** = **`timing_pain_unassigned(i)`** (this value).
+
+**Plan totals:**
+
+```
+P_total_reported = P_timing + P_daily + sum over unassigned i of timing_pain_unassigned(i)
+```
+
+This makes leaving work **outside the horizon** cost the same as slipping it to the **first day after the horizon** — important tasks (high **`w`**, backlog **`M(c)`**) score high, without a new penalty type.
+
+**Optimizer note:** When **`F_i`** is non-empty, assignment is **mandatory**; reference pain is for **reporting** and comparing plans. When comparing alternative horizons in the UI, unassigned reference pain shows cost of “not in this window.”
+
+No pain cap; compare **`P_total_reported`** to **`P*`** for UI only.
 
 ---
 
@@ -148,23 +282,31 @@ Process instances in this priority (stable sort):
 3. Earlier **`scheduled_at`**  
 4. Lower task id (tie-break)
 
-### 9.2 Greedy assignment
+### 9.2 Greedy assignment (two phases)
+
+#### Phase 1 — strict `H_hard`
 
 For each instance **i** in order:
 
 ```
 best = null
 for each day d in F_i in chronological order:
+    if L(d) + d_i > H_hard:
+        skip d
     if assigning i -> d keeps same-day ordering potentially satisfiable:
         delta_P = marginal increase in P_total
-        if best is null or delta_P < best.delta_P:
-            best = (d, delta_P)
-        else if delta_P == best.delta_P and d earlier:
-            best = (d, delta_P)
-assign i to best.d (fallback: first day in F_i if all equal)
+        pick d with minimum delta_P (tie: earlier d)
+if best found:
+    assign i to best.d
+else:
+    leave i unassigned for overflow pass
 ```
 
-**Marginal pain** includes:
+#### Phase 2 — overflow (only if unassigned remain)
+
+Run §7.4: assign remaining instances allowing **`L(d) > H_hard`**, minimize **`P_total`**.
+
+**Marginal pain** in both phases includes:
 
 - Change in **timing_pain** (Regime A/B, **`M(c)`** for backlog virtuals)  
 - Change in **`rho(L(d))`** for affected days  
@@ -173,8 +315,8 @@ assign i to best.d (fallback: first day in F_i if all equal)
 
 Repeat until no improvement or **max_iterations** (e.g. 1000):
 
-- **Move:** reassign one instance to another day in **`F_i`** if **`P_total`** decreases and same-day order can be satisfied.  
-- **Swap:** exchange planned days of two instances if feasible and **`P_total`** decreases.
+- **Move / swap** only among assignments that satisfy **`L(d) <= H_hard`** if **strict mode succeeded for all instances**.  
+- If **overflow** was used, allow moves that keep **`P_total`** lower; may keep or reduce **`over_hard_cap`** days.
 
 Re-run within-day topological sort after each change.
 
@@ -190,10 +332,11 @@ After optimization, compute **`within_day_order`** per day (section 5).
 {
   "horizonStart": "2026-06-01",
   "horizonEnd": "2026-06-07",
-  "pTotal": 42.5,
-  "pStar": 100,
-  "pTiming": 30.0,
+  "pTotal": 48.0,
+  "pTiming": 35.0,
+  "pTimingUnassigned": 6.0,
   "pDaily": 12.5,
+  "pStar": 100,
   "days": [
     { "date": "2026-06-01", "loadMinutes": 90, "overHardCap": false, "dailyPain": 4.2 }
   ],
@@ -208,14 +351,51 @@ After optimization, compute **`within_day_order`** per day (section 5).
       "withinDayOrder": 0,
       "timingPain": 0,
       "durationMinutes": 15
+    },
+    {
+      "instanceKey": "...",
+      "taskId": "...",
+      "scheduledAt": "2026-05-20",
+      "plannedAt": null,
+      "placement": "unassigned",
+      "timingPain": 6.0,
+      "durationMinutes": 10
     }
   ],
-  "warnings": []
+  "warnings": ["plan_underflow_strict_cap"]
 }
 ```
 
-- **`instanceKey`:** persisted open id, or synthetic id for virtuals (`taskId + scheduledAt + backlogIndex`).  
-- **`warnings`:** e.g. `ordering_cycle`, `no_feasible_day` (instance unassigned — should be rare).
+### 10.1 Plan item fields
+
+Every object in **`items`** (assigned and unplanned) **must** include **`timingPain`** (number, ≥ 0):
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| **`instanceKey`** | yes | Stable id for this schedulable row (open id or virtual key). |
+| **`taskId`** | yes | Owning task. |
+| **`scheduledAt`** | yes | Ideal date **`s`** from scheduling. |
+| **`plannedAt`** | yes | User-visible planned day, or **`null`** if unplanned (§2.1, §8.2). |
+| **`timingPain`** | yes | Per-instance timing pain (see below). |
+| **`durationMinutes`** | yes | Task duration **`d_i`**. |
+| **`withinDayOrder`** | if assigned | Same-day sort index (§5). |
+| **`placement`** | if unplanned | e.g. **`"unassigned"`**. |
+| **`virtual`**, **`backlog`**, **`overdue`** | optional | Scheduling metadata when applicable. |
+
+**`timingPain` computation:**
+
+```
+if plannedAt != null:
+    timingPain = timing_pain(i, p = plannedAt)     // Regime A/B + M(c); pain-model §3
+else:
+    timingPain = timing_pain(i, p = p_beyond)      // §8.2; Regime A + M(c)
+```
+
+- Use **final** user-visible assignments after **`truncatePlan`** (§2.1).
+- **`sum(timingPain)`** over assigned items equals **`pTiming`**; over unplanned items equals **`pTimingUnassigned`**.
+
+- **`pTotal`** = assigned timing + daily + unassigned reference timing (§8.2).  
+- **`warnings`:** e.g. `ordering_cycle`, `plan_underflow_strict_cap`, `unassigned_instances`, …
 
 ---
 
@@ -239,10 +419,17 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 | Regime B | Timing pain 0 on **`d0`**, rises on **`d0+1`** |
 | Two tasks, same slip | Earlier **`scheduled_at`** → higher pain |
 | Backlog **c=3**, **backlog_p=0.6** | Higher timing pain than **c=1** |
-| Overload day | **`overHardCap`** true; **`rho(L)`** high |
+| Overload day | Only after overflow pass; **`overHardCap`** true |
+| Strict cap | Instances spread off **`d0`** when ideal day full |
+| 7×3 min cap, 8×2 min tasks | 7 assigned strict; 8th triggers overflow / warning |
 | A before B same day | B always **`within_day_order` > A** |
-| Snooze | Nothing planned before **`snooze_until`** |
+| Snooze blocks whole horizon | **`unassigned`**, **`timingPain`** = pain at **`p_beyond`** |
+| In-grace carry-in | **`scheduled_at < H_start`**, grace covers **`H_start`** → **`overdue = false`**, Regime A on **`d0`** |
+| Slip past horizon in grace | Unplanned; **`timingPain`** at **`p_beyond`** low if **`p_beyond`** still in grace |
+| Extended horizon (2×) | Internal assign on day **`U_end + 1`** → user view **unplanned**; no last-day cram |
+| Unassigned on plan | **`plannedAt: null`**, included in **`pTimingUnassigned`** |
 | Mark done | Only completion stores **`planned_at`** |
+| Per-item timing pain | Every **`items[]`** row has **`timingPain`**; assigned uses **`plannedAt`**, unplanned uses **`p_beyond`** |
 
 ---
 
@@ -260,4 +447,10 @@ Mark done / snooze: separate endpoints; client may re-POST `/api/plan`.
 
 | Version | Notes |
 |---------|--------|
-| 0.1 | Initial: pipeline, F_i, ordering, best-effort H_hard flag, ephemeral planned_at |
+| 0.3.4 | **`timingPain`** required on every plan item |
+| 0.3.3 | Extended planning horizon (default 2×), truncate to user window |
+| 0.3.2 | **`overdue`** aligned with scheduling grace rule; carry-in cross-ref |
+| 0.3.1 | Unplanned instances: timing pain on day after **`H_end`** |
+| 0.3 | Minimal **`F_i`** (horizon + snooze); unassigned pain at **`p_beyond`**; mandatory assign |
+| 0.2 | **`H_hard`** strict + overflow pass; bin-packing infeasibility |
+| 0.1 | Initial: pipeline, F_i, ordering, ephemeral planned_at |
