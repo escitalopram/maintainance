@@ -1,0 +1,66 @@
+@import 'tailwindcss';
+@import 'react-big-calendar/lib/css/react-big-calendar.css';
+
+:root {
+  font-family: system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.rbc-calendar {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  min-height: 640px;
+}
+
+.rbc-toolbar button {
+  border-radius: 0.375rem;
+}
+
+.rbc-event {
+  border: none !important;
+  border-radius: 0.375rem;
+  padding: 2px 4px;
+}
+
+.rbc-event.over-cap-day {
+  outline: 2px solid #ef4444;
+}
+
+.rbc-off-range-bg {
+  background: #f1f5f9;
+}
+
+/* Week view: day-level planning only — hide hourly time grid */
+.plan-calendar .rbc-time-view .rbc-time-content {
+  display: none;
+}
+
+.plan-calendar .rbc-time-view .rbc-time-header-gutter {
+  display: none;
+}
+
+.plan-calendar .rbc-time-view .rbc-time-header-content > .rbc-row.rbc-time-header-cell {
+  min-height: 2.5rem;
+}
+
+.plan-calendar .rbc-time-view .rbc-allday-cell {
+  min-height: 8rem;
+}
+
+.plan-calendar .rbc-time-view {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.plan-calendar .rbc-calendar {
+  min-height: auto;
+}
