@@ -9,8 +9,8 @@ tasks.register<Exec>("frontendBuild") {
 
 tasks.register<Copy>("copyFrontend") {
     group = "frontend"
-    description = "Copy frontend dist into backend static resources"
+    description = "Copy frontend dist into backend generated resources"
     dependsOn("frontendBuild")
     from("frontend/dist")
-    into("backend/src/main/resources/static")
+    into("backend/build/generated/frontend-static")
 }

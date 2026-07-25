@@ -36,6 +36,16 @@ tasks.withType<Test> {
     useJUnitPlatform()
 }
 
+sourceSets {
+    main {
+        resources.srcDir("build/generated/frontend-static")
+    }
+}
+
+tasks.named<ProcessResources>("processResources") {
+    dependsOn(rootProject.tasks.named("copyFrontend"))
+}
+
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
     archiveFileName.set("maintainance.jar")
     dependsOn(rootProject.tasks.named("copyFrontend"))
