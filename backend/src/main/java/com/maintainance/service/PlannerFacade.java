@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -154,6 +155,8 @@ public class PlannerFacade {
         completion.setCompletedAt(Instant.now());
         completionRepository.save(completion);
 
+        LocalDate completionDate = completion.getCompletedAt().atZone(ZoneId.systemDefault()).toLocalDate();
+
         TaskRules rules = state.rules();
         if (intervalDeltaPercent != null && intervalDeltaPercent != 0) {
             double factor = 1.0 + intervalDeltaPercent / 100.0;
@@ -168,8 +171,9 @@ public class PlannerFacade {
             );
             entity.setRulesJson(taskMapper.writeRules(rules));
             state = new TaskState(state.id(), state.name(), state.description(), state.archived(), rules,
-                    state.epochStart(), state.nextScheduled(), state.lastMissedScheduledAt(),
-                    state.catchUpCount(), state.lastReconciledDate(), state.openInstance());
+                    state.createdDate(), state.lastCompletionDate(), state.epochStart(), state.nextScheduled(),
+                    state.lastMissedScheduledAt(), state.catchUpCount(), state.lastReconciledDate(),
+                    state.openInstance());
         }
 
         if (rules.catchUp()) {
@@ -184,7 +188,14 @@ public class PlannerFacade {
                     state.lastReconciledDate(), null);
         }
 
-        LocalDate next = schedulingService.computeNextScheduled(state, LocalDate.now());
+        if (rules.anchorMode() == com.maintainance.domain.model.AnchorMode.LAST_COMPLETION) {
+            state = state.withLastCompletionDate(completionDate);
+        }
+
+        LocalDate nextAfter = rules.anchorMode() == com.maintainance.domain.model.AnchorMode.LAST_COMPLETION
+                ? completionDate
+                : LocalDate.now();
+        LocalDate next = schedulingService.computeNextScheduled(state, nextAfter);
         if (intervalDeltaPercent != null && intervalDeltaPercent != 0) {
             state = state.withSchedulingFields(next, next, state.lastMissedScheduledAt(), state.catchUpCount(),
                     state.lastReconciledDate(), null);
@@ -238,6 +249,12 @@ public class PlannerFacade {
     private TaskState loadAndReconcile(TaskEntity entity, LocalDate today) {
         OpenInstanceEntity openEntity = openInstanceRepository.findByTaskId(entity.getId()).orElse(null);
         TaskState state = taskMapper.toState(entity, openEntity);
+        LocalDate lastCompletion = completionRepository.findFirstByTaskIdOrderByCompletedAtDesc(entity.getId())
+                .map(c -> c.getCompletedAt().atZone(ZoneId.systemDefault()).toLocalDate())
+                .orElse(null);
+        if (lastCompletion != null) {
+            state = state.withLastCompletionDate(lastCompletion);
+        }
         if (state.epochStart() == null && !state.rules().isExternalDue()) {
             state = schedulingService.initializeEpoch(state, today);
         }

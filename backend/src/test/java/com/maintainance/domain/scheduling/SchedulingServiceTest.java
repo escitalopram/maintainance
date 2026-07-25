@@ -91,6 +91,43 @@ class SchedulingServiceTest {
     }
 
     @Test
+    void lastCompletionColdStartSchedulesFromCreatedDate() {
+        LocalDate created = LocalDate.of(2026, 7, 25);
+        TaskState task = lastCompletionTask(created, 21.0, created, null);
+
+        LocalDate next = schedulingService.computeNextScheduled(task, created);
+        assertEquals(LocalDate.of(2026, 8, 15), next);
+    }
+
+    @Test
+    void lastCompletionSeptemberHorizonSkipsGapAssumptions() {
+        LocalDate created = LocalDate.of(2026, 7, 25);
+        LocalDate today = LocalDate.of(2026, 7, 25);
+        LocalDate horizonStart = LocalDate.of(2026, 9, 1);
+        LocalDate horizonEnd = LocalDate.of(2026, 9, 30);
+
+        TaskState task21 = lastCompletionTask(created, 21.0, created, null);
+        task21 = schedulingService.initializeEpoch(task21, today);
+        Set<LocalDate> assumed21 = schedulingService.horizonAssumedCompletedDates(task21, today, horizonStart);
+        var instances21 = schedulingService.scheduleHorizon(
+                task21, horizonStart, horizonEnd, today, assumed21);
+
+        assertEquals(
+                Set.of(LocalDate.of(2026, 9, 5), LocalDate.of(2026, 9, 26)),
+                Set.copyOf(instances21.stream().map(i -> i.scheduledAt()).toList()));
+
+        TaskState task42 = lastCompletionTask(created, 42.0, created, null);
+        task42 = schedulingService.initializeEpoch(task42, today);
+        Set<LocalDate> assumed42 = schedulingService.horizonAssumedCompletedDates(task42, today, horizonStart);
+        var instances42 = schedulingService.scheduleHorizon(
+                task42, horizonStart, horizonEnd, today, assumed42);
+
+        assertEquals(
+                Set.of(LocalDate.of(2026, 9, 5)),
+                Set.copyOf(instances42.stream().map(i -> i.scheduledAt()).toList()));
+    }
+
+    @Test
     void scheduleHorizonIncludesLastPastCurrent() {
         LocalDate epoch = LocalDate.of(2026, 5, 1);
         LocalDate today = LocalDate.of(2026, 5, 3);
@@ -104,6 +141,50 @@ class SchedulingServiceTest {
                 .filter(i -> i.scheduledAt().equals(LocalDate.of(2026, 5, 2)))
                 .count();
         assertEquals(1, currentCount);
+    }
+
+    private static TaskState lastCompletionTask(
+            LocalDate createdDate,
+            double intervalN,
+            LocalDate epochStart,
+            LocalDate nextScheduled
+    ) {
+        TaskRules rules = new TaskRules(
+                IntervalType.EVERY_N_DAYS,
+                intervalN,
+                AnchorMode.LAST_COMPLETION,
+                false,
+                true,
+                Set.of(),
+                null,
+                null,
+                null,
+                null,
+                15,
+                1.0,
+                0,
+                3,
+                3.0,
+                3.0,
+                0.6,
+                null,
+                null
+        );
+        return new TaskState(
+                UUID.randomUUID(),
+                "test",
+                null,
+                false,
+                rules,
+                createdDate,
+                null,
+                epochStart,
+                nextScheduled,
+                null,
+                0,
+                createdDate,
+                null
+        );
     }
 
     private static TaskState dailyCatchUpTask(
@@ -140,6 +221,8 @@ class SchedulingServiceTest {
                 null,
                 false,
                 rules,
+                epochStart,
+                null,
                 epochStart,
                 nextScheduled,
                 lastMissed,

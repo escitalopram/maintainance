@@ -48,7 +48,23 @@ public class SchedulingService {
      * Ephemeral only — never emitted in scheduleHorizon output (scheduling-model §8).
      */
     public Set<LocalDate> horizonAssumedCompletedDates(TaskState task, LocalDate today, LocalDate horizonStart) {
-        if (!horizonStart.isAfter(today) || task.epochStart() == null || task.rules().isExternalDue()) {
+        if (!horizonStart.isAfter(today) || task.rules().isExternalDue()) {
+            return Set.of();
+        }
+        if (usesLastCompletionAnchor(task.rules())) {
+            LocalDate anchor = lastCompletionAnchor(task);
+            if (anchor == null) {
+                return Set.of();
+            }
+            Set<LocalDate> assumed = new HashSet<>();
+            for (LocalDate slot : IntervalGrid.lastCompletionSlotsThrough(anchor, task.rules(), horizonStart.minusDays(1))) {
+                if (!slot.isBefore(today) && slot.isBefore(horizonStart)) {
+                    assumed.add(slot);
+                }
+            }
+            return assumed;
+        }
+        if (task.epochStart() == null) {
             return Set.of();
         }
         Set<LocalDate> assumed = new HashSet<>();
@@ -111,15 +127,29 @@ public class SchedulingService {
         LocalDate watermark = task.lastReconciledDate() != null ? task.lastReconciledDate() : today;
         int count = task.catchUpCount();
         LocalDate lastMissed = task.lastMissedScheduledAt();
-        LocalDate epoch = task.epochStart();
 
-        if (epoch != null && watermark.isBefore(today)) {
-            for (LocalDate slot : IntervalGrid.gridSlotsThrough(epoch, task.rules(), today.minusDays(1))) {
-                if (slot.isAfter(watermark) && slot.isBefore(today)) {
-                    LocalDate predecessor = IntervalGrid.previousGridSlotBefore(epoch, task.rules(), slot);
-                    if (predecessor != null && predecessor.isBefore(today)) {
-                        count++;
-                        lastMissed = predecessor;
+        if (watermark.isBefore(today)) {
+            if (usesLastCompletionAnchor(task.rules())) {
+                LocalDate anchor = lastCompletionAnchor(task);
+                if (anchor != null) {
+                    for (LocalDate slot : IntervalGrid.lastCompletionSlotsThrough(anchor, task.rules(), today.minusDays(1))) {
+                        if (slot.isAfter(watermark) && slot.isBefore(today)) {
+                            LocalDate predecessor = IntervalGrid.previousLastCompletionSlotBefore(anchor, task.rules(), slot);
+                            if (predecessor != null && predecessor.isBefore(today)) {
+                                count++;
+                                lastMissed = predecessor;
+                            }
+                        }
+                    }
+                }
+            } else if (task.epochStart() != null) {
+                for (LocalDate slot : IntervalGrid.gridSlotsThrough(task.epochStart(), task.rules(), today.minusDays(1))) {
+                    if (slot.isAfter(watermark) && slot.isBefore(today)) {
+                        LocalDate predecessor = IntervalGrid.previousGridSlotBefore(task.epochStart(), task.rules(), slot);
+                        if (predecessor != null && predecessor.isBefore(today)) {
+                            count++;
+                            lastMissed = predecessor;
+                        }
                     }
                 }
             }
@@ -138,6 +168,10 @@ public class SchedulingService {
     private LocalDate lastPastCurrentObligation(TaskState task, LocalDate today) {
         if (task.openInstance() != null) {
             return task.openInstance().scheduledAt();
+        }
+        if (usesLastCompletionAnchor(task.rules())) {
+            LocalDate anchor = lastCompletionAnchor(task);
+            return anchor == null ? null : IntervalGrid.lastPastCurrentObligationLastCompletion(anchor, task.rules(), today);
         }
         return IntervalGrid.lastPastCurrentObligation(task.epochStart(), task.rules(), today);
     }
@@ -160,9 +194,20 @@ public class SchedulingService {
         if (rules.isExternalDue()) {
             return task.nextScheduled();
         }
-        LocalDate baseAfter = afterDate;
-        if (rules.anchorMode() == AnchorMode.LAST_COMPLETION) {
-            // Caller should pass appropriate afterDate from last completion when recomputing
+        if (usesLastCompletionAnchor(rules)) {
+            LocalDate anchor = lastCompletionAnchor(task);
+            if (anchor == null) {
+                return null;
+            }
+            LocalDate previous = task.openInstance() != null
+                    ? task.openInstance().scheduledAt()
+                    : task.nextScheduled();
+            LocalDate candidate = IntervalGrid.nextLastCompletionSlotOnOrAfter(
+                    anchor, rules, afterDate, previous);
+            if (RuleConstraints.isArchived(rules, candidate)) {
+                return null;
+            }
+            return candidate;
         }
         LocalDate epoch = task.epochStart();
         if (epoch == null) {
@@ -171,7 +216,7 @@ public class SchedulingService {
         LocalDate previous = task.openInstance() != null
                 ? task.openInstance().scheduledAt()
                 : (task.nextScheduled() != null ? task.nextScheduled() : epoch);
-        LocalDate candidate = IntervalGrid.nextGridSlotOnOrAfter(epoch, rules, baseAfter);
+        LocalDate candidate = IntervalGrid.nextGridSlotOnOrAfter(epoch, rules, afterDate);
         candidate = RuleConstraints.applyAllConstraints(candidate, previous, rules);
         if (RuleConstraints.isArchived(rules, candidate)) {
             return null;
@@ -188,6 +233,7 @@ public class SchedulingService {
     ) {
         List<SchedulableInstance> result = new ArrayList<>();
         TaskRules rules = task.rules();
+        Set<LocalDate> assumed = assumedCompletedDates != null ? assumedCompletedDates : Set.of();
 
         if (rules.catchUp() && task.catchUpCount() > 0 && task.lastMissedScheduledAt() != null) {
             LocalDate snooze = task.openInstance() != null ? task.openInstance().snoozeUntil() : null;
@@ -197,21 +243,30 @@ public class SchedulingService {
             }
         } else if (task.openInstance() != null) {
             OpenInstance open = task.openInstance();
-            result.add(buildInstance(task, "open:" + open.id(), open.scheduledAt(), open.id(),
-                    false, false, horizonStart, open.snoozeUntil()));
+            if (!assumed.contains(open.scheduledAt())) {
+                result.add(buildInstance(task, "open:" + open.id(), open.scheduledAt(), open.id(),
+                        false, false, horizonStart, open.snoozeUntil()));
+            }
         }
 
-        if (!rules.isExternalDue() && task.epochStart() != null) {
-            LocalDate lastPastCurrent = IntervalGrid.lastPastCurrentObligation(
-                    task.epochStart(), rules, today);
-            if (lastPastCurrent != null && shouldIncludeLastPastCurrent(task, lastPastCurrent)) {
+        if (!rules.isExternalDue()) {
+            LocalDate lastPastCurrent = lastPastCurrentObligationForHorizon(task, today);
+            if (lastPastCurrent != null
+                    && !assumed.contains(lastPastCurrent)
+                    && shouldIncludeLastPastCurrent(task, lastPastCurrent)) {
                 LocalDate snooze = task.openInstance() != null ? task.openInstance().snoozeUntil() : null;
                 result.add(buildInstance(task, "current:" + lastPastCurrent, lastPastCurrent, null,
                         true, false, horizonStart, snooze));
             }
         }
 
-        if (rules.isExternalDue() || task.epochStart() == null) {
+        if (rules.isExternalDue()) {
+            return result;
+        }
+        if (usesLastCompletionAnchor(rules) && lastCompletionAnchor(task) == null) {
+            return result;
+        }
+        if (!usesLastCompletionAnchor(rules) && task.epochStart() == null) {
             return result;
         }
 
@@ -219,14 +274,16 @@ public class SchedulingService {
         if (cursor == null) {
             cursor = computeNextScheduled(task, horizonStart.minusDays(1));
         }
+        if (cursor != null && assumed.contains(cursor)) {
+            cursor = advanceScheduledSlot(task, cursor);
+        }
         if (cursor == null) {
             return result;
         }
 
-        LocalDate previousScheduled = cursor;
         int forwardIndex = 0;
         while (cursor != null && !cursor.isAfter(horizonEnd)) {
-            if (!cursor.isBefore(horizonStart)) {
+            if (!cursor.isBefore(horizonStart) && !assumed.contains(cursor)) {
                 boolean duplicateOpen = task.openInstance() != null
                         && !rules.catchUp()
                         && task.openInstance().scheduledAt().equals(cursor);
@@ -237,18 +294,40 @@ public class SchedulingService {
                 }
             }
             forwardIndex++;
-            LocalDate nextRaw = IntervalGrid.nextGridSlotOnOrAfter(task.epochStart(), rules, cursor);
-            if (!nextRaw.isAfter(cursor)) {
-                nextRaw = cursor.plusDays(1);
-            }
-            cursor = RuleConstraints.applyAllConstraints(nextRaw, previousScheduled, rules);
-            previousScheduled = cursor;
-            if (RuleConstraints.isArchived(rules, cursor)) {
+            cursor = advanceScheduledSlot(task, cursor);
+            if (cursor != null && RuleConstraints.isArchived(rules, cursor)) {
                 break;
             }
         }
 
         return result;
+    }
+
+    private LocalDate lastPastCurrentObligationForHorizon(TaskState task, LocalDate today) {
+        if (usesLastCompletionAnchor(task.rules())) {
+            LocalDate anchor = lastCompletionAnchor(task);
+            return anchor == null ? null : IntervalGrid.lastPastCurrentObligationLastCompletion(anchor, task.rules(), today);
+        }
+        if (task.epochStart() == null) {
+            return null;
+        }
+        return IntervalGrid.lastPastCurrentObligation(task.epochStart(), task.rules(), today);
+    }
+
+    private LocalDate advanceScheduledSlot(TaskState task, LocalDate cursor) {
+        TaskRules rules = task.rules();
+        if (usesLastCompletionAnchor(rules)) {
+            LocalDate anchor = lastCompletionAnchor(task);
+            if (anchor == null) {
+                return null;
+            }
+            return IntervalGrid.nextLastCompletionSlotOnOrAfter(anchor, rules, cursor, cursor);
+        }
+        LocalDate nextRaw = IntervalGrid.nextGridSlotOnOrAfter(task.epochStart(), rules, cursor);
+        if (!nextRaw.isAfter(cursor)) {
+            nextRaw = cursor.plusDays(1);
+        }
+        return RuleConstraints.applyAllConstraints(nextRaw, cursor, rules);
     }
 
     private boolean shouldIncludeLastPastCurrent(TaskState task, LocalDate lastPastCurrent) {
@@ -291,6 +370,11 @@ public class SchedulingService {
         if (task.epochStart() != null) {
             return task;
         }
+        if (usesLastCompletionAnchor(task.rules())) {
+            LocalDate anchor = task.createdDate() != null ? task.createdDate() : today;
+            LocalDate first = IntervalGrid.nextLastCompletionSlotOnOrAfter(anchor, task.rules(), anchor, null);
+            return task.withSchedulingFields(first, first, null, 0, today, task.openInstance());
+        }
         LocalDate epoch = RuleConstraints.asap(today, task.rules());
         LocalDate next = RuleConstraints.applyAllConstraints(
                 IntervalGrid.gridSlotDate(epoch, task.rules(), 0),
@@ -298,5 +382,16 @@ public class SchedulingService {
                 task.rules()
         );
         return task.withSchedulingFields(epoch, next, null, 0, today, task.openInstance());
+    }
+
+    private static boolean usesLastCompletionAnchor(TaskRules rules) {
+        return rules.anchorMode() == AnchorMode.LAST_COMPLETION;
+    }
+
+    private static LocalDate lastCompletionAnchor(TaskState task) {
+        if (task.lastCompletionDate() != null) {
+            return task.lastCompletionDate();
+        }
+        return task.createdDate();
     }
 }

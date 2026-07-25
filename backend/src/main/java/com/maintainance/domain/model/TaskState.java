@@ -9,6 +9,8 @@ public record TaskState(
         String description,
         boolean archived,
         TaskRules rules,
+        LocalDate createdDate,
+        LocalDate lastCompletionDate,
         LocalDate epochStart,
         LocalDate nextScheduled,
         LocalDate lastMissedScheduledAt,
@@ -17,8 +19,8 @@ public record TaskState(
         OpenInstance openInstance
 ) {
     public TaskState withOpenInstance(OpenInstance open) {
-        return new TaskState(id, name, description, archived, rules, epochStart, nextScheduled,
-                lastMissedScheduledAt, catchUpCount, lastReconciledDate, open);
+        return new TaskState(id, name, description, archived, rules, createdDate, lastCompletionDate,
+                epochStart, nextScheduled, lastMissedScheduledAt, catchUpCount, lastReconciledDate, open);
     }
 
     public TaskState withSchedulingFields(
@@ -29,7 +31,12 @@ public record TaskState(
             LocalDate lastReconciledDate,
             OpenInstance openInstance
     ) {
-        return new TaskState(id, name, description, archived, rules, epochStart, nextScheduled,
-                lastMissedScheduledAt, catchUpCount, lastReconciledDate, openInstance);
+        return new TaskState(id, name, description, archived, rules, createdDate, lastCompletionDate,
+                epochStart, nextScheduled, lastMissedScheduledAt, catchUpCount, lastReconciledDate, openInstance);
+    }
+
+    public TaskState withLastCompletionDate(LocalDate lastCompletionDate) {
+        return new TaskState(id, name, description, archived, rules, createdDate, lastCompletionDate,
+                epochStart, nextScheduled, lastMissedScheduledAt, catchUpCount, lastReconciledDate, openInstance);
     }
 }

@@ -138,4 +138,119 @@ public final class IntervalGrid {
     public static long calendarDaysInclusive(LocalDate start, LocalDate end) {
         return ChronoUnit.DAYS.between(start, end) + 1;
     }
+
+    public static LocalDate addIntervalDays(LocalDate from, TaskRules rules) {
+        long dayIndex = (long) Math.floor(from.toEpochDay() + intervalDays(rules) + 1e-9);
+        return LocalDate.ofEpochDay(dayIndex);
+    }
+
+    public static LocalDate nextLastCompletionSlotOnOrAfter(
+            LocalDate anchorDate,
+            TaskRules rules,
+            LocalDate afterExclusive,
+            LocalDate previousScheduled
+    ) {
+        LocalDate previous = previousScheduled;
+        LocalDate from = previous != null ? previous : anchorDate;
+        for (int guard = 0; guard < 10_000; guard++) {
+            LocalDate candidate = RuleConstraints.applyAllConstraints(
+                    addIntervalDays(from, rules), previous, rules);
+            if (RuleConstraints.isArchived(rules, candidate)) {
+                return null;
+            }
+            if (candidate.isAfter(afterExclusive == null ? LocalDate.MIN : afterExclusive)) {
+                return candidate;
+            }
+            previous = candidate;
+            from = candidate;
+        }
+        throw new IllegalStateException("Could not find next last-completion slot");
+    }
+
+    public static Iterable<LocalDate> lastCompletionSlotsThrough(
+            LocalDate anchorDate,
+            TaskRules rules,
+            LocalDate throughInclusive
+    ) {
+        return () -> new LastCompletionSlotIterator(anchorDate, rules, throughInclusive);
+    }
+
+    public static LocalDate lastPastCurrentObligationLastCompletion(
+            LocalDate anchorDate,
+            TaskRules rules,
+            LocalDate today
+    ) {
+        if (anchorDate == null || !today.isAfter(anchorDate)) {
+            return null;
+        }
+        LocalDate lastPastCurrent = null;
+        for (LocalDate slot : lastCompletionSlotsThrough(anchorDate, rules, today.minusDays(1))) {
+            LocalDate successor = nextLastCompletionSlotOnOrAfter(anchorDate, rules, slot, slot);
+            if (!successor.isBefore(today)) {
+                lastPastCurrent = slot;
+            }
+        }
+        return lastPastCurrent;
+    }
+
+    public static LocalDate previousLastCompletionSlotBefore(
+            LocalDate anchorDate,
+            TaskRules rules,
+            LocalDate slot
+    ) {
+        LocalDate previous = null;
+        for (LocalDate candidate : lastCompletionSlotsThrough(anchorDate, rules, slot.minusDays(1))) {
+            previous = candidate;
+        }
+        return previous;
+    }
+
+    private static final class LastCompletionSlotIterator implements java.util.Iterator<LocalDate> {
+        private final LocalDate anchorDate;
+        private final TaskRules rules;
+        private final LocalDate throughInclusive;
+        private LocalDate next;
+        private LocalDate previousScheduled;
+        private LocalDate lastEmitted;
+
+        LastCompletionSlotIterator(LocalDate anchorDate, TaskRules rules, LocalDate throughInclusive) {
+            this.anchorDate = anchorDate;
+            this.rules = rules;
+            this.throughInclusive = throughInclusive;
+            advance();
+        }
+
+        private void advance() {
+            next = null;
+            for (int guard = 0; guard < 10_000; guard++) {
+                LocalDate from = previousScheduled != null ? previousScheduled : anchorDate;
+                LocalDate candidate = RuleConstraints.applyAllConstraints(
+                        addIntervalDays(from, rules), previousScheduled, rules);
+                if (RuleConstraints.isArchived(rules, candidate) || candidate.isAfter(throughInclusive)) {
+                    return;
+                }
+                previousScheduled = candidate;
+                if (lastEmitted == null || !candidate.equals(lastEmitted)) {
+                    next = candidate;
+                    return;
+                }
+            }
+        }
+
+        @Override
+        public boolean hasNext() {
+            return next != null;
+        }
+
+        @Override
+        public LocalDate next() {
+            if (next == null) {
+                throw new java.util.NoSuchElementException();
+            }
+            LocalDate current = next;
+            lastEmitted = current;
+            advance();
+            return current;
+        }
+    }
 }
