@@ -31,6 +31,8 @@ Decisions for v1 of the personal maintenance planner. Functional specs: [require
 - **Database file path:** H2 file stem (no `.mv.db` suffix). Default: **`./data/maintainance`**. Override with CLI **`--database`**, JVM property **`maintainance.database-file`**, or Spring property **`--maintainance.database-file`**. Examples:  
   `java -jar maintainance.jar --database=$HOME/.maintainance/planner`  
   `./gradlew :backend:bootRun --args='--database=$HOME/.maintainance/planner'`
+- **Server port:** Default **`8080`**. Override with CLI **`--port`**, JVM property **`server.port`**, or Spring property **`--server.port`**. Example:  
+  `java -jar maintainance.jar --port=9090`
 
 ---
 

@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import type { Task, TaskRules } from '../api/types'
+import { taskFieldHelp } from '../taskFieldHelp'
+import { FieldLabel } from './FieldLabel'
 import { FutureFeatureField } from './FutureFeatureField'
+import { PainCurvePreview } from './PainCurvePreview'
 import { fieldsetFutureClass, inputClass, inputClassFuture } from './formStyles'
 
 function defaultRules(): TaskRules {
@@ -47,25 +50,33 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
       }}
     >
       <div className="grid gap-4 md:grid-cols-2">
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Name</span>
-          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} required />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Description</span>
+        <div className="text-sm">
+          <FieldLabel label="Name" help={taskFieldHelp.name} htmlFor="task-name" />
           <input
+            id="task-name"
+            className={inputClass}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </div>
+        <div className="text-sm">
+          <FieldLabel label="Description" help={taskFieldHelp.description} htmlFor="task-description" />
+          <input
+            id="task-description"
             className={inputClass}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
-        </label>
+        </div>
       </div>
 
       <fieldset className="grid gap-4 md:grid-cols-3">
         <legend className="col-span-full text-sm font-semibold text-slate-700">Recurrence</legend>
-        <label className="text-sm">
-          <span className="mb-1 block">Interval type</span>
+        <div className="text-sm">
+          <FieldLabel label="Interval type" help={taskFieldHelp.intervalType} htmlFor="task-interval-type" />
           <select
+            id="task-interval-type"
             className={inputClass}
             value={rules.intervalType}
             onChange={(e) => setRule('intervalType', e.target.value as TaskRules['intervalType'])}
@@ -76,10 +87,11 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
             <option value="EVERY_N_YEARS">Every N years</option>
             <option value="EXTERNAL_DUE">External due script</option>
           </select>
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block">N (≥ 1)</span>
+        </div>
+        <div className="text-sm">
+          <FieldLabel label="N (≥ 1)" help={taskFieldHelp.intervalN} htmlFor="task-interval-n" />
           <input
+            id="task-interval-n"
             type="number"
             min={1}
             step={0.001}
@@ -88,10 +100,11 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
             onChange={(e) => setRule('intervalN', Math.max(1, Number(e.target.value)))}
             disabled={rules.intervalType === 'EXTERNAL_DUE'}
           />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block">Anchor</span>
+        </div>
+        <div className="text-sm">
+          <FieldLabel label="Anchor" help={taskFieldHelp.anchorMode} htmlFor="task-anchor-mode" />
           <select
+            id="task-anchor-mode"
             className={inputClass}
             value={rules.anchorMode}
             onChange={(e) => setRule('anchorMode', e.target.value as TaskRules['anchorMode'])}
@@ -99,24 +112,31 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
             <option value="EPOCH">Epoch</option>
             <option value="LAST_COMPLETION">Last completion</option>
           </select>
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={rules.catchUp} onChange={(e) => setRule('catchUp', e.target.checked)} />
-          Catch-up
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block">Duration (min)</span>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
           <input
+            id="task-catch-up"
+            type="checkbox"
+            checked={rules.catchUp}
+            onChange={(e) => setRule('catchUp', e.target.checked)}
+          />
+          <FieldLabel label="Catch-up" help={taskFieldHelp.catchUp} htmlFor="task-catch-up" />
+        </div>
+        <div className="text-sm">
+          <FieldLabel label="Duration (min)" help={taskFieldHelp.durationMinutes} htmlFor="task-duration" />
+          <input
+            id="task-duration"
             type="number"
             min={1}
             className={inputClass}
             value={rules.durationMinutes}
             onChange={(e) => setRule('durationMinutes', Number(e.target.value))}
           />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block">Importance</span>
+        </div>
+        <div className="text-sm">
+          <FieldLabel label="Importance" help={taskFieldHelp.importanceWeight} htmlFor="task-importance" />
           <input
+            id="task-importance"
             type="number"
             min={1}
             step={0.1}
@@ -124,34 +144,37 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
             value={rules.importanceWeight}
             onChange={(e) => setRule('importanceWeight', Math.max(1, Number(e.target.value)))}
           />
-        </label>
+        </div>
       </fieldset>
 
       <fieldset className="grid gap-4 md:grid-cols-4">
         <legend className="col-span-full text-sm font-semibold text-slate-700">Flexibility / pain</legend>
-        <label className="text-sm">
-          Grace early (days)
+        <div className="text-sm">
+          <FieldLabel label="Grace early (days)" help={taskFieldHelp.graceEarlyDays} htmlFor="task-grace-early" />
           <input
+            id="task-grace-early"
             type="number"
             min={0}
             className={inputClass}
             value={rules.graceEarlyDays}
             onChange={(e) => setRule('graceEarlyDays', Number(e.target.value))}
           />
-        </label>
-        <label className="text-sm">
-          Grace late (days)
+        </div>
+        <div className="text-sm">
+          <FieldLabel label="Grace late (days)" help={taskFieldHelp.graceLateDays} htmlFor="task-grace-late" />
           <input
+            id="task-grace-late"
             type="number"
             min={0}
             className={inputClass}
             value={rules.graceLateDays}
             onChange={(e) => setRule('graceLateDays', Number(e.target.value))}
           />
-        </label>
-        <label className="text-sm">
-          Sigma early
+        </div>
+        <div className="text-sm">
+          <FieldLabel label="Sigma early" help={taskFieldHelp.sigmaEarly} htmlFor="task-sigma-early" />
           <input
+            id="task-sigma-early"
             type="number"
             min={0.1}
             step={0.1}
@@ -159,10 +182,11 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
             value={rules.sigmaEarly}
             onChange={(e) => setRule('sigmaEarly', Number(e.target.value))}
           />
-        </label>
-        <label className="text-sm">
-          Sigma late
+        </div>
+        <div className="text-sm">
+          <FieldLabel label="Sigma late" help={taskFieldHelp.sigmaLate} htmlFor="task-sigma-late" />
           <input
+            id="task-sigma-late"
             type="number"
             min={0.1}
             step={0.1}
@@ -170,10 +194,11 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
             value={rules.sigmaLate}
             onChange={(e) => setRule('sigmaLate', Number(e.target.value))}
           />
-        </label>
-        <label className="text-sm">
-          Backlog exponent p
+        </div>
+        <div className="text-sm">
+          <FieldLabel label="Backlog exponent p" help={taskFieldHelp.backlogP} htmlFor="task-backlog-p" />
           <input
+            id="task-backlog-p"
             type="number"
             min={0.01}
             max={1}
@@ -182,32 +207,25 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
             value={rules.backlogP}
             onChange={(e) => setRule('backlogP', Number(e.target.value))}
           />
-        </label>
-        <FutureFeatureField
-          className="col-span-full md:col-span-2"
-          label="Pain curve preview"
-          hint="Visual timing-pain curve for this task (v2 roadmap)."
-        >
-          <div
-            className={`${inputClassFuture} flex h-20 items-center justify-center text-xs italic`}
-            aria-hidden
-          >
-            Chart preview not available yet
-          </div>
-        </FutureFeatureField>
+        </div>
+        <div className="col-span-full md:col-span-2">
+          <FieldLabel label="Pain curve preview" help={taskFieldHelp.painCurvePreview} />
+          <PainCurvePreview rules={rules} />
+        </div>
       </fieldset>
 
       {rules.intervalType === 'EXTERNAL_DUE' && (
         <div className="space-y-4">
-          <label className="block text-sm">
-            Due script path
+          <div className="text-sm">
+            <FieldLabel label="Due script path" help={taskFieldHelp.dueScriptPath} htmlFor="task-due-script" />
             <input
+              id="task-due-script"
               className={inputClass}
               value={rules.dueScriptPath ?? ''}
               onChange={(e) => setRule('dueScriptPath', e.target.value)}
             />
-          </label>
-          <FutureFeatureField label="Due script arguments" hint="Extra CLI args for the due script.">
+          </div>
+          <FutureFeatureField label="Due script arguments" hint={taskFieldHelp.dueScriptArgs}>
             <input className={inputClassFuture} disabled placeholder="e.g. --config /path/to.cfg" />
           </FutureFeatureField>
         </div>
@@ -219,11 +237,11 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
           Fields below are on the v2 roadmap. They use dashed styling until the feature ships.
         </p>
 
-        <FutureFeatureField label="Tags" hint="Group tasks with name and description labels.">
+        <FutureFeatureField label="Tags" hint={taskFieldHelp.tags}>
           <input className={inputClassFuture} disabled placeholder="e.g. home, health" />
         </FutureFeatureField>
 
-        <FutureFeatureField label="Preferred time of day" hint="Day-level scheduling hint for the planner.">
+        <FutureFeatureField label="Preferred time of day" hint={taskFieldHelp.preferredTime}>
           <select className={inputClassFuture} disabled defaultValue="">
             <option value="">Not set</option>
             <option value="morning">Morning</option>
@@ -232,55 +250,40 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
           </select>
         </FutureFeatureField>
 
-        <FutureFeatureField
-          label="Allowed weekdays"
-          hint="Restrict which weekdays a task may be scheduled on."
-        >
+        <FutureFeatureField label="Allowed weekdays" hint={taskFieldHelp.allowedWeekdays}>
           <input className={inputClassFuture} disabled value="All days (weekday picker planned)" readOnly />
         </FutureFeatureField>
 
-        <FutureFeatureField label="Season start" hint="First day the task is active each year.">
+        <FutureFeatureField label="Season start" hint={taskFieldHelp.seasonStart}>
           <input type="date" className={inputClassFuture} disabled />
         </FutureFeatureField>
 
-        <FutureFeatureField label="Season end" hint="Last day the task is active each year.">
+        <FutureFeatureField label="Season end" hint={taskFieldHelp.seasonEnd}>
           <input type="date" className={inputClassFuture} disabled />
         </FutureFeatureField>
 
-        <FutureFeatureField label="End date" hint="Auto-archive the task after this date.">
+        <FutureFeatureField label="End date" hint={taskFieldHelp.endDate}>
           <input type="date" className={inputClassFuture} disabled />
         </FutureFeatureField>
 
-        <FutureFeatureField
-          label="Min days between scheduled"
-          hint="Minimum spacing between planned instances."
-        >
+        <FutureFeatureField label="Min days between scheduled" hint={taskFieldHelp.minDaysBetweenScheduled}>
           <input type="number" min={0} className={inputClassFuture} disabled placeholder="e.g. 7" />
         </FutureFeatureField>
 
-        <FutureFeatureField
-          label="Backlog count multiplier"
-          hint="Toggle whether catch-up count affects timing pain."
-        >
+        <FutureFeatureField label="Backlog count multiplier" hint={taskFieldHelp.useBacklogMultiplier}>
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input type="checkbox" className="accent-amber-600" checked disabled />
             Enabled (editor planned)
           </label>
         </FutureFeatureField>
 
-        <FutureFeatureField
-          label="Nth weekday of month"
-          hint="e.g. 3rd Tuesday — alternative interval type."
-        >
+        <FutureFeatureField label="Nth weekday of month" hint={taskFieldHelp.nthWeekday}>
           <input className={inputClassFuture} disabled placeholder="Not available yet" readOnly />
         </FutureFeatureField>
       </fieldset>
 
       {initial && (
-        <FutureFeatureField
-          label="Epoch start"
-          hint="Edit the anchor date for epoch-based recurrence."
-        >
+        <FutureFeatureField label="Epoch start" hint={taskFieldHelp.epochStart}>
           <input
             type="date"
             className={inputClassFuture}
@@ -292,10 +295,15 @@ export function TaskForm({ initial, onSubmit, onCancel, submitting }: TaskFormPr
       )}
 
       {initial && (
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
-          Archived
-        </label>
+        <div className="flex items-center gap-2 text-sm">
+          <input
+            id="task-archived"
+            type="checkbox"
+            checked={archived}
+            onChange={(e) => setArchived(e.target.checked)}
+          />
+          <FieldLabel label="Archived" help={taskFieldHelp.archived} htmlFor="task-archived" />
+        </div>
       )}
 
       {initial && (

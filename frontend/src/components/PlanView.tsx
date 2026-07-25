@@ -140,7 +140,7 @@ export function PlanView() {
       {error && <p className="text-sm text-red-600">{(error as Error).message}</p>}
 
       <div className="grid gap-4 xl:grid-cols-[1fr_280px]">
-        <div className="plan-calendar">
+        <div className={`plan-calendar ${view === 'month' ? 'plan-calendar--month' : 'plan-calendar--week'}`}>
         <Calendar
           localizer={localizer}
           events={events}
@@ -152,6 +152,7 @@ export function PlanView() {
           toolbar
           popup
           showMultiDayTimes={false}
+          style={{ minHeight: view === 'month' ? 920 : 640 }}
           dayPropGetter={dayPropGetter}
           onSelectEvent={(event) => setSelected((event as PlanEvent).resource)}
           eventPropGetter={(event) => {
@@ -161,16 +162,36 @@ export function PlanView() {
                 backgroundColor: painColor(item.timingPain, maxPain),
                 color: '#0f172a',
                 fontSize: '0.75rem',
+                ...(view === 'month'
+                  ? {
+                      height: 'auto',
+                      minHeight: '2.5rem',
+                      whiteSpace: 'normal',
+                      overflow: 'visible',
+                    }
+                  : {}),
               },
             }
           }}
           components={{
             event: ({ event }) => {
               const item = (event as PlanEvent).resource
+              if (view === 'month') {
+                return (
+                  <div className="plan-event-month leading-snug">
+                    <div className="font-medium">{event.title}</div>
+                    <div className="text-[10px] opacity-90">
+                      {item.durationMinutes}m · {item.timingPain.toFixed(1)}
+                    </div>
+                  </div>
+                )
+              }
               return (
                 <div className="leading-tight">
                   <div className="font-medium">{event.title}</div>
-                  <div>{item.durationMinutes}m · pain {item.timingPain.toFixed(1)}</div>
+                  <div>
+                    {item.durationMinutes}m · pain {item.timingPain.toFixed(1)}
+                  </div>
                 </div>
               )
             },
