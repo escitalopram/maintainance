@@ -17,8 +17,8 @@ import com.maintainance.persistence.entity.CompletionEntity;
 import com.maintainance.persistence.entity.OpenInstanceEntity;
 import com.maintainance.persistence.entity.SettingsEntity;
 import com.maintainance.persistence.entity.TaskEntity;
-import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.UUID;
 
 @Service
+@Transactional
 public class PlannerFacade {
 
     private final TaskRepository taskRepository;
@@ -55,7 +56,6 @@ public class PlannerFacade {
         this.planningService = new PlanningService();
     }
 
-    @Transactional
     public PlanResult plan(LocalDate horizonStart, LocalDate horizonEnd) {
         LocalDate today = LocalDate.now();
         PlannerSettings settings = loadSettings();
@@ -75,7 +75,6 @@ public class PlannerFacade {
         return planningService.plan(allInstances, horizonStart, horizonEnd, planEnd, settings);
     }
 
-    @Transactional
     public TaskState createTask(String name, String description, TaskRules rules) {
         LocalDate today = LocalDate.now();
         TaskEntity entity = new TaskEntity();
@@ -99,7 +98,6 @@ public class PlannerFacade {
         return loadAndReconcile(entity, today);
     }
 
-    @Transactional
     public TaskState updateTask(UUID id, String name, String description, TaskRules rules, Boolean archived) {
         TaskEntity entity = taskRepository.findById(id).orElseThrow();
         entity.setName(name);
@@ -113,7 +111,6 @@ public class PlannerFacade {
         return loadAndReconcile(entity, LocalDate.now());
     }
 
-    @Transactional
     public void deleteTask(UUID id) {
         openInstanceRepository.deleteByTaskId(id);
         taskRepository.deleteById(id);
@@ -135,7 +132,6 @@ public class PlannerFacade {
         return loadAndReconcile(entity, LocalDate.now());
     }
 
-    @Transactional
     public void completeInstance(
             UUID taskId,
             UUID openInstanceId,
@@ -196,7 +192,6 @@ public class PlannerFacade {
         persistState(entity, state);
     }
 
-    @Transactional
     public void snoozeInstance(UUID taskId, LocalDate snoozeUntil) {
         TaskEntity entity = taskRepository.findById(taskId).orElseThrow();
         TaskState state = loadAndReconcile(entity, LocalDate.now());
@@ -213,7 +208,6 @@ public class PlannerFacade {
         return loadSettings();
     }
 
-    @Transactional
     public PlannerSettings updateSettings(PlannerSettings settings) {
         SettingsEntity entity = settingsRepository.findById(1L).orElseThrow();
         entity.setSoftBudgetMinutes(settings.softBudgetMinutes());
