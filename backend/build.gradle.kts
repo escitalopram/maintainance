@@ -38,12 +38,16 @@ tasks.withType<Test> {
 
 sourceSets {
     main {
-        resources.srcDir("build/generated/frontend-static")
+        resources.srcDir("build/generated/resources")
     }
 }
 
 tasks.named<ProcessResources>("processResources") {
     dependsOn(rootProject.tasks.named("copyFrontend"))
+}
+
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    dependsOn(tasks.named("processResources"))
 }
 
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {

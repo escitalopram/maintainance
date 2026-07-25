@@ -48,7 +48,17 @@ Decisions for v1 of the personal maintenance planner. Functional specs: [require
 
 Dev: Vite dev server with proxy to `http://localhost:8080` (or chosen port).
 
-Prod-like local: `frontend` build output copied to `backend/src/main/resources/static`.
+- Prod-like local: `frontend` build output copied to `backend/build/generated/resources/static` (served at `http://localhost:8080`).
+
+**Seeing an old UI after pulling?** Run a clean rebuild so the bundled frontend is refreshed:
+
+```bash
+./gradlew clean copyFrontend :backend:bootRun
+```
+
+Open **`http://127.0.0.1:8080`** (the Spring Boot server). If you use the Vite dev server instead, run `npm run dev` in `frontend/` and open **`http://127.0.0.1:5173`** — that process must be restarted separately after pulls.
+
+If you previously built before mid-2026, delete any stale `backend/src/main/resources/static/` folder (Gradle does this automatically via `cleanStaleFrontend`).
 
 ---
 
