@@ -16,6 +16,8 @@ Firefox extension that adds a toolbar button on YouTube Shorts pages. Click it t
 2. **Load Temporary Add-on…**
 3. Choose `manifest.json` in this folder.
 
+The toolbar button uses `default_area: "navbar"` so it should appear on the main toolbar on **first install**. If you loaded an older build, remove the add-on and load again (or pin manually via the puzzle menu → **Pin to Toolbar**).
+
 ## Install (persistent)
 
 Zip the folder contents (not the parent directory) and install via `about:addons`, or use your own Firefox build with signing disabled.

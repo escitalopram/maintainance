@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Shorts to Watch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Open the current YouTube Short as a regular watch page.",
   "browser_specific_settings": {
     "gecko": {
@@ -15,6 +15,7 @@
     "scripts": ["urls.js", "background.js"]
   },
   "action": {
+    "default_area": "navbar",
     "default_title": "Open as regular video (only on YouTube Shorts)",
     "default_icon": {
       "16": "icons/icon.svg",
