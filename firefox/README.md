@@ -10,6 +10,7 @@ This directory contains a sparse clone of Mozilla Firefox source (focused on `se
 | `custom-signing-keys/` | Generated private keys and PEM certificates (keep private keys secure) |
 | `replace-extension-signing-keys.patch` | Unified diff against upstream `main` |
 | `remove-xpinstall-signatures-required.patch` | Removes default `xpinstall.signatures.required` from `browser/app/profile/firefox.js` |
+| `remove-addon-settings-require-signing.patch` | Stops hard-coding `REQUIRE_SIGNING` in `toolkit/mozapps/extensions/internal/AddonSettings.sys.mjs` |
 
 ## Certificates replaced
 
@@ -35,6 +36,7 @@ git clone --depth 1 https://github.com/mozilla-firefox/firefox.git firefox
 cd firefox
 git apply /path/to/replace-extension-signing-keys.patch
 git apply /path/to/remove-xpinstall-signatures-required.patch
+git apply /path/to/remove-addon-settings-require-signing.patch
 ```
 
 Or copy certificate PEM files from `custom-signing-keys/` into `security/manager/ssl/` using the mapping in `custom-signing-keys/README.md`.
