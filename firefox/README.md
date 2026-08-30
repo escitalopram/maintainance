@@ -9,6 +9,7 @@ This directory contains a sparse clone of Mozilla Firefox source (focused on `se
 | `firefox-src/` | Sparse git clone of [mozilla-firefox/firefox](https://github.com/mozilla-firefox/firefox) with custom certificates applied |
 | `custom-signing-keys/` | Generated private keys and PEM certificates (keep private keys secure) |
 | `replace-extension-signing-keys.patch` | Unified diff against upstream `main` |
+| `remove-xpinstall-signatures-required.patch` | Removes default `xpinstall.signatures.required` from `browser/app/profile/firefox.js` |
 
 ## Certificates replaced
 
@@ -33,6 +34,7 @@ Staging:
 git clone --depth 1 https://github.com/mozilla-firefox/firefox.git firefox
 cd firefox
 git apply /path/to/replace-extension-signing-keys.patch
+git apply /path/to/remove-xpinstall-signatures-required.patch
 ```
 
 Or copy certificate PEM files from `custom-signing-keys/` into `security/manager/ssl/` using the mapping in `custom-signing-keys/README.md`.

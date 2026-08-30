@@ -1,0 +1,12 @@
+diff --git a/browser/app/profile/firefox.js b/browser/app/profile/firefox.js
+index 2c51045e271ffaf59ecb7e3dca95cff24740562c..f6383bed 100644
+--- a/browser/app/profile/firefox.js
++++ b/browser/app/profile/firefox.js
+@@ -71,7 +71,6 @@ pref("extensions.webextensions.pageActionIconDarkModeFilter.enabled", false);
+ 
+ // Require signed add-ons by default
+ pref("extensions.langpacks.signatures.required", true);
+-pref("xpinstall.signatures.required", true);
+ 
+ // Enable data collection permissions.
+ pref("extensions.dataCollectionPermissions.enabled", true);
