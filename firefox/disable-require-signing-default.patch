@@ -1,0 +1,13 @@
+diff --git a/toolkit/moz.configure b/toolkit/moz.configure
+index 3ead1cd4e273d041cf2d9b2a069d9ade6e4ea480..6b9e08be 100644
+--- a/toolkit/moz.configure
++++ b/toolkit/moz.configure
+@@ -2049,7 +2049,7 @@ set_define("A11Y_LOG", True, when=a11y_log)
+ # ==============================================================
+ @depends(milestone)
+ def require_signing(milestone):
+-    return milestone.is_release_or_beta and not milestone.is_esr
++    return False
+ 
+ 
+ option(
