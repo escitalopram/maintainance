@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Shorts to Watch",
+  "version": "1.0.1",
+  "description": "Open the current YouTube Short as a regular watch page.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "shorts-to-watch@wolfgang.illmeyer",
+      "strict_min_version": "109.0"
+    }
+  },
+  "permissions": ["tabs"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "background": {
+    "scripts": ["urls.js", "background.js"]
+  },
+  "action": {
+    "default_area": "navbar",
+    "default_title": "Open as regular video (only on YouTube Shorts)",
+    "default_icon": {
+      "16": "icons/icon.svg",
+      "32": "icons/icon.svg",
+      "48": "icons/icon.svg"
+    }
+  },
+  "icons": {
+    "48": "icons/icon.svg"
+  }
+}

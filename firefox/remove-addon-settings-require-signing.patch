@@ -1,0 +1,40 @@
+diff --git a/toolkit/mozapps/extensions/internal/AddonSettings.sys.mjs b/toolkit/mozapps/extensions/internal/AddonSettings.sys.mjs
+index 09bb0adc..8e533141 100644
+--- a/toolkit/mozapps/extensions/internal/AddonSettings.sys.mjs
++++ b/toolkit/mozapps/extensions/internal/AddonSettings.sys.mjs
+@@ -29,23 +29,18 @@ function makeConstant(name, value) {
+   });
+ }
+ 
+-if (AppConstants.MOZ_REQUIRE_SIGNING && !Cu.isInAutomation) {
+-  makeConstant("REQUIRE_SIGNING", true);
+-  makeConstant("LANGPACKS_REQUIRE_SIGNING", true);
+-} else {
+-  XPCOMUtils.defineLazyPreferenceGetter(
+-    AddonSettings,
+-    "REQUIRE_SIGNING",
+-    PREF_SIGNATURES_REQUIRED,
+-    false
+-  );
+-  XPCOMUtils.defineLazyPreferenceGetter(
+-    AddonSettings,
+-    "LANGPACKS_REQUIRE_SIGNING",
+-    PREF_LANGPACK_SIGNATURES,
+-    false
+-  );
+-}
++XPCOMUtils.defineLazyPreferenceGetter(
++  AddonSettings,
++  "REQUIRE_SIGNING",
++  PREF_SIGNATURES_REQUIRED,
++  false
++);
++XPCOMUtils.defineLazyPreferenceGetter(
++  AddonSettings,
++  "LANGPACKS_REQUIRE_SIGNING",
++  PREF_LANGPACK_SIGNATURES,
++  false
++);
+ 
+ /**
+  * Require the use of certs shipped with Firefox for
